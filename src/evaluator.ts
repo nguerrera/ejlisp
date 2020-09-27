@@ -307,7 +307,7 @@ function nameFunction(name: string | undefined, func: es.FunctionExpression): es
         kind: "init",
         method: false,
         shorthand: false,
-        computed: true,
+        computed: false,
         key,
         value: func,
       },
