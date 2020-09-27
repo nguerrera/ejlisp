@@ -111,7 +111,7 @@ function compile(expression: Expression, environment: Environment): es.Expressio
       case "number":
       case "string":
       case "boolean":
-        return { type: "Literal", value };
+        return getLiteral(value);
       default:
         const sym = Symbol();
         const id = getFreeSymbolId(sym);
@@ -128,19 +128,15 @@ function compile(expression: Expression, environment: Environment): es.Expressio
   function compileLambda(lambda: Lambda): es.Expression {
     const body = compileExpression(lambda.body);
     const params = lambda.parameters.map(getBoundVariable);
-    const id: es.Identifier | undefined = lambda.name
-      ? { type: "Identifier", name: lambda.name }
-      : undefined;
 
-    return {
+    return nameFunction(lambda.name, {
       type: "FunctionExpression",
       params,
-      id,
       body: {
         type: "BlockStatement",
         body: [{ type: "ReturnStatement", argument: body }],
       },
-    };
+    });
   }
 
   function compileWhile(loop: While): es.CallExpression {
@@ -177,21 +173,14 @@ function compile(expression: Expression, environment: Environment): es.Expressio
   }
 }
 
+const nullLiteral = getLiteral(null);
+const environmentId = getIdentifier("$");
+
 const undefinedLiteral: es.UnaryExpression = {
   type: "UnaryExpression",
   prefix: true,
   operator: "void",
-  argument: { type: "Literal", value: 0 },
-};
-
-const nullLiteral: es.Literal = {
-  type: "Literal",
-  value: null,
-};
-
-const environmentId: es.Identifier = {
-  type: "Identifier",
-  name: "$",
+  argument: getLiteral(0),
 };
 
 const returnNil: es.ReturnStatement = {
@@ -277,7 +266,7 @@ function getFreeSymbolId(sym: symbol): string {
 
 function getBoundVariable(sym: symbol): es.Identifier {
   const name = getBoundSymbolId(sym);
-  return { type: "Identifier", name };
+  return getIdentifier(name);
 }
 
 function getFreeVariable(sym: symbol): es.MemberExpression {
@@ -287,10 +276,49 @@ function getFreeVariable(sym: symbol): es.MemberExpression {
     computed: true,
     optional: false,
     object: environmentId,
-    property: { type: "Literal", value: id },
+    property: getLiteral(id),
   };
 }
 
-function getVariable(sym: symbol, isBound: boolean): es.Identifier | es.MemberExpression {
+function getVariable(sym: symbol, isBound: boolean) {
   return isBound ? getBoundVariable(sym) : getFreeVariable(sym);
+}
+
+function getIdentifier(name: string): es.Identifier {
+  return { type: "Identifier", name };
+}
+
+function getLiteral(value: string | number | boolean | null): es.Literal {
+  return { type: "Literal", value };
+}
+
+function nameFunction(name: string | undefined, func: es.FunctionExpression): es.Expression {
+  if (!name) {
+    return func;
+  }
+
+  const key = getLiteral(name);
+
+  const obj: es.ObjectExpression = {
+    type: "ObjectExpression",
+    properties: [
+      {
+        type: "Property",
+        kind: "init",
+        method: false,
+        shorthand: false,
+        computed: true,
+        key,
+        value: func,
+      },
+    ],
+  };
+
+  return {
+    type: "MemberExpression",
+    computed: true,
+    object: obj,
+    optional: false,
+    property: key,
+  };
 }
