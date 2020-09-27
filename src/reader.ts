@@ -63,8 +63,7 @@ export const enum CharCode {
   _0 = 48, _1, _2, _3, _4, _5, _6, _7, _8, _9,
 }
 
-export function read(input: string | Scanner): Datum {
-  let scanner = typeof input === "string" ? createScanner(input) : input;
+export function read(scanner: Scanner): Datum {
   let currentToken = Token.None;
   return readDatum();
 

@@ -10,5 +10,7 @@
   },
   "files.insertFinalNewline": true,
   "files.trimFinalNewlines": true,
-  "typescript.disableAutomaticTypeAcquisition": true
+  "typescript.disableAutomaticTypeAcquisition": true,
+  "mochaExplorer.files": "dist/tests.js",
+  "mochaExplorer.require": "source-map-support/register"
 }
