@@ -219,7 +219,7 @@ export function integerp(value: unknown): Bool {
 }
 
 export function isFloat(value: unknown): value is Float {
-  return isNumber(value) && !isFixnum(value);
+  return isNumber(value) && !isInteger(value);
 }
 
 export function floatp(value: unknown): Bool {
@@ -357,6 +357,10 @@ export function truncate(value: Num): Integer {
 /** Coerces a number to a float. */
 export function float(value: Num): Float {
   isNumber(value) || numberError(value);
+  if (isFloat(value)) {
+    return value;
+  }
+  value = Number(value);
   return isFixnum(value) ? new FixnumFloat(value) : (value as Float);
 }
 
@@ -380,6 +384,68 @@ export function isInterned(symbol: symbol) {
 export function symbolName(symbol: symbol): string {
   isSymbol(symbol) || symbolError(symbol);
   return symbol.description ?? "";
+}
+
+export function print(value: unknown): string {
+  if (value === true) {
+    return "#<true>";
+  }
+
+  if (value === false) {
+    return "#<false>";
+  }
+
+  if (value === null) {
+    return "#<null>";
+  }
+
+  if (isNil(value)) {
+    return "nil";
+  }
+
+  if (typeof value === "function") {
+    return `#<function:${value.name || "(anonymous)"}>`;
+  }
+
+  if (isVector(value)) {
+    return "[" + value.map(print).join(" ") + "]";
+  }
+
+  if (isString(value)) {
+    return '"' + value + '"';
+  }
+
+  if (isNumber(value)) {
+    if (isFloat(value) && Number.isInteger(+value)) {
+      return value.toString() + ".0";
+    } else {
+      return value.toString();
+    }
+  }
+
+  if (isSymbol(value)) {
+    if (isInterned(value)) {
+      return value.description || "##";
+    } else {
+      return `#:${value.description}`;
+    }
+  }
+
+  if (isCons(value)) {
+    let s = "(" + print(value.car);
+    value = value.cdr;
+    while (isCons(value)) {
+      s += " " + print(value.car);
+      value = value.cdr;
+    }
+    if (!isNil(value)) {
+      s += " . " + print(value);
+    }
+    s += ")";
+    return s;
+  }
+
+  return `#<${typeof value}>`;
 }
 
 /** Internal representation of cons cells. */

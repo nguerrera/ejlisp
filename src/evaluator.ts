@@ -147,22 +147,15 @@ function compile(expression: Expression, environment: Environment): es.Expressio
     const test = compileExpression(loop.test);
     const body = compileExpression(loop.body);
 
-    // BUG: This should test (not nil or false) instead of JavaScript truthiness
-    const loopTest: es.AssignmentExpression = {
-      type: "AssignmentExpression",
-      operator: "=",
-      left: resultId,
-      right: test,
-    };
-
     const loopBody: es.ExpressionStatement = {
       type: "ExpressionStatement",
       expression: body,
     };
 
+    // BUG: This should test (not nil or false) instead of JavaScript truthiness
     const whileLoop: es.WhileStatement = {
       type: "WhileStatement",
-      test: loopTest,
+      test,
       body: loopBody,
     };
 
@@ -171,7 +164,7 @@ function compile(expression: Expression, environment: Environment): es.Expressio
       params: [],
       body: {
         type: "BlockStatement",
-        body: [declareResult, whileLoop, returnResult],
+        body: [whileLoop, returnNil],
       },
     };
 
@@ -196,25 +189,14 @@ const nullLiteral: es.Literal = {
   value: null,
 };
 
-const resultId: es.Identifier = {
-  type: "Identifier",
-  name: "_",
-};
-
 const environmentId: es.Identifier = {
   type: "Identifier",
   name: "$",
 };
 
-const declareResult: es.VariableDeclaration = {
-  type: "VariableDeclaration",
-  kind: "let",
-  declarations: [{ type: "VariableDeclarator", id: resultId }],
-};
-
-const returnResult: es.ReturnStatement = {
+const returnNil: es.ReturnStatement = {
   type: "ReturnStatement",
-  argument: resultId,
+  argument: undefinedLiteral,
 };
 
 /**
@@ -252,9 +234,10 @@ const environmentPrototype = (function () {
     eq: primitives.eq,
     listp: primitives.listp,
     not: primitives.not,
-    integerp: primitives.isInteger,
+    integerp: primitives.integerp,
     intern: primitives.intern,
     list: primitives.list,
+    print: primitives.print,
     setcar: primitives.setcar,
     setcdr: primitives.setcdr,
     stringp: primitives.stringp,

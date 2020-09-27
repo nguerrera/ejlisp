@@ -217,14 +217,20 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
         return Token.CloseSquareBracket;
       case CharCode.DoubleQuote:
         return scanString();
-      default:
-        if (isSymbolStart(ch)) {
-          return scanSymbol();
-        }
-        if (isNumberStart(ch)) {
+      case CharCode.Plus:
+      case CharCode.Minus:
+        if (isNumberStart(input.charCodeAt(position + 1))) {
           return scanNumber();
         }
-        throw error(`Invalid token: ${input.charAt(position)}`);
+        break;
+    }
+
+    if (isNumberStart(ch)) {
+      return scanNumber();
+    } else if (isSymbolStart(ch)) {
+      return scanSymbol();
+    } else {
+      throw error(`Invalid token: ${input.charAt(position)}`);
     }
   }
 
