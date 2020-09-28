@@ -40,7 +40,7 @@ export function compileFormToString(form: unknown) {
 
   let comment = "\n";
   for (let i = 0; i < literals.length; i++) {
-    comment += `// ${literalsId.name}[${i}]: ${print(literals[i])}\n`;
+    comment += `// $$[${i}]: ${print(literals[i])}\n`;
   }
 
   return comment + jsText + "\n";
