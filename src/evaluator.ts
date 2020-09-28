@@ -219,8 +219,10 @@ const returnNil: es.ReturnStatement = {
  * to different slots if they're not both interned.
  *
  * The same scheme is used for uninterned global variables, but interned global
- * variables keep their descriptive names and are accessed as `$["<name>"]` to
- * make things easier to debug.
+ * variables keep their descriptive names and are accessed as `$["<name>"]`
+ * where `$` is always in scope as the global environment. This helps debugging
+ * and allows a JavaScript host to easily inject things into the Lisp global
+ * environment.
  */
 const symbolIds = new Map<symbol, string>();
 
