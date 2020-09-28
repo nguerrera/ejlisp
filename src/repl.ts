@@ -1,4 +1,4 @@
-import { createEnvironment, evaluate } from "./evaluator";
+import { compileFormToString, createEnvironment, evaluate } from "./evaluator";
 import { createScanner, read } from "./reader";
 import { intern, print } from "./primitives";
 import { question } from "readline-sync";
@@ -9,6 +9,16 @@ export function repl() {
   environment.exit = function exit() {
     done = true;
     return intern("Bye.");
+  };
+  // debugging aids
+  environment["to-string"] = function toString(x: any) {
+    return x.toString();
+  };
+  environment["to-json"] = function toJson(x: any) {
+    return JSON.stringify(x, undefined, 2);
+  };
+  environment.compile = function compile(form: unknown) {
+    return compileFormToString(form, environment);
   };
 
   while (!done) {

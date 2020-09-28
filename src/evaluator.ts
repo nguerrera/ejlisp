@@ -31,14 +31,14 @@ export function evaluate(form: unknown, environment: Environment): unknown {
   return func(environment);
 }
 
-function compileFormToString(form: unknown, environment: Environment) {
+export function compileFormToString(form: unknown, environment: Environment) {
   const lispTree = parse(form);
   const jsTree = compile(lispTree, environment);
   const jsText = generate(jsTree);
   return jsText;
 }
 
-function compile(expression: Expression, environment: Environment): es.Expression {
+export function compile(expression: Expression, environment: Environment): es.Expression {
   return compileExpression(expression);
 
   function compileExpression(expression: Expression) {
@@ -266,13 +266,6 @@ const environmentPrototype = (function () {
 
     [environmentId.name]: function (this: Environment, key: string) {
       return key in this ? this[key] : notBoundError(key);
-    },
-
-    // debugging aids
-    "to-string": (x: any) => x.toString(),
-    "to-json": (x: any) => JSON.stringify(x, undefined, 2),
-    compile: function (this: Environment, form: unknown) {
-      return compileFormToString(form, this);
     },
   };
 
