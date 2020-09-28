@@ -21,16 +21,21 @@ export interface Environment extends Nominal<"environment"> {
   [key: string]: unknown;
 }
 
+export function createEnvironment(): Environment {
+  return Object.create(environmentPrototype);
+}
+
 export function evaluate(form: unknown, environment: Environment): unknown {
-  const lispTree = parse(form);
-  const jsTree = compile(lispTree, environment);
-  const jsText = generate(jsTree);
+  const jsText = compileFormToString(form, environment);
   const func = new Function(environmentId.name, `"use strict";return (${jsText});`);
   return func(environment);
 }
 
-export function createEnvironment(): Environment {
-  return Object.create(environmentPrototype);
+function compileFormToString(form: unknown, environment: Environment) {
+  const lispTree = parse(form);
+  const jsTree = compile(lispTree, environment);
+  const jsText = generate(jsTree);
+  return jsText;
 }
 
 function compile(expression: Expression, environment: Environment): es.Expression {
@@ -68,8 +73,18 @@ function compile(expression: Expression, environment: Environment): es.Expressio
     };
   }
 
-  function compileGetVariable(get: GetVariable) {
-    return getVariable(get.symbol, get.isBound);
+  function compileGetVariable(get: GetVariable): es.Expression {
+    if (get.isBound) {
+      return getBoundVariable(get.symbol);
+    } else {
+      const id = getFreeSymbolId(get.symbol);
+      return {
+        type: "CallExpression",
+        callee: environmentGetter,
+        arguments: [getLiteral(id)],
+        optional: false,
+      };
+    }
   }
 
   function compileSetVariable(set: SetVariable): es.AssignmentExpression {
@@ -176,6 +191,14 @@ function compile(expression: Expression, environment: Environment): es.Expressio
 const nullLiteral = getLiteral(null);
 const environmentId = getIdentifier("$");
 
+const environmentGetter: es.MemberExpression = {
+  type: "MemberExpression",
+  object: environmentId,
+  property: environmentId,
+  computed: false,
+  optional: false,
+};
+
 const undefinedLiteral: es.UnaryExpression = {
   type: "UnaryExpression",
   prefix: true,
@@ -240,15 +263,24 @@ const environmentPrototype = (function () {
     "=": primitives.numericEqual,
     "make-symbol": primitives.makeSymbol,
     "symbol-name": primitives.symbolName,
+
+    [environmentId.name]: function (this: Environment, key: string) {
+      return key in this ? this[key] : notBoundError(key);
+    },
+
+    // debugging aids
     "to-string": (x: any) => x.toString(),
     "to-json": (x: any) => JSON.stringify(x, undefined, 2),
+    compile: function (this: Environment, form: unknown) {
+      return compileFormToString(form, this);
+    },
   };
 
   for (const key in constants) {
     Object.defineProperty(env, key, { writable: false });
   }
 
-  return Object.freeze(env);
+  return env;
 })();
 
 function getBoundSymbolId(sym: symbol): string {
@@ -321,4 +353,8 @@ function nameFunction(name: string | undefined, func: es.FunctionExpression): es
     optional: false,
     property: key,
   };
+}
+
+function notBoundError(key: string): never {
+  throw new TypeError(`'${key}' is not bound.`);
 }
