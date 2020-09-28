@@ -18,7 +18,7 @@ export function repl() {
     return JSON.stringify(x, undefined, 2);
   };
   environment.compile = function compile(form: unknown) {
-    return compileFormToString(form, environment);
+    return compileFormToString(form);
   };
 
   while (!done) {

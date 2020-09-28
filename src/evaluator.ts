@@ -1,5 +1,5 @@
 import { generate } from "astring";
-import { Nominal, isInterned } from "./primitives";
+import { Nominal, isInterned, print } from "./primitives";
 import * as es from "estree";
 import * as primitives from "./primitives";
 
@@ -26,20 +26,29 @@ export function createEnvironment(): Environment {
 }
 
 export function evaluate(form: unknown, environment: Environment): unknown {
-  const jsText = compileFormToString(form, environment);
-  const func = new Function(environmentId.name, `"use strict";return (${jsText});`);
-  return func(environment);
-}
-
-export function compileFormToString(form: unknown, environment: Environment) {
   const lispTree = parse(form);
-  const jsTree = compile(lispTree, environment);
+  const [jsTree, literals] = compile(lispTree);
   const jsText = generate(jsTree);
-  return jsText;
+  const func = new Function("$", "$$", `"use strict";return (${jsText});`);
+  return func(environment, literals);
 }
 
-export function compile(expression: Expression, environment: Environment): es.Expression {
-  return compileExpression(expression);
+export function compileFormToString(form: unknown) {
+  const lispTree = parse(form);
+  const [jsTree, literals] = compile(lispTree);
+  const jsText = generate(jsTree);
+
+  let comment = "\n";
+  for (let i = 0; i < literals.length; i++) {
+    comment += `// ${literalsId.name}[${i}]: ${print(literals[i])}\n`;
+  }
+
+  return comment + jsText + "\n";
+}
+
+export function compile(expression: Expression): [es.Expression, unknown[]] {
+  let literals: unknown[] = [];
+  return [compileExpression(expression), literals];
 
   function compileExpression(expression: Expression) {
     switch (expression.kind) {
@@ -128,10 +137,8 @@ export function compile(expression: Expression, environment: Environment): es.Ex
       case "boolean":
         return getLiteral(value);
       default:
-        const sym = Symbol();
-        const id = getFreeSymbolId(sym);
-        Object.defineProperty(environment, id, { value, writable: false });
-        return getFreeVariable(sym);
+        literals.push(value);
+        return getIndexedLiteral(literals.length - 1);
     }
   }
 
@@ -190,6 +197,7 @@ export function compile(expression: Expression, environment: Environment): es.Ex
 
 const nullLiteral = getLiteral(null);
 const environmentId = getIdentifier("$");
+const literalsId = getIdentifier("$$");
 
 const environmentGetter: es.MemberExpression = {
   type: "MemberExpression",
@@ -317,6 +325,16 @@ function getIdentifier(name: string): es.Identifier {
 
 function getLiteral(value: string | number | boolean | null): es.Literal {
   return { type: "Literal", value };
+}
+
+function getIndexedLiteral(index: number): es.MemberExpression {
+  return {
+    type: "MemberExpression",
+    object: literalsId,
+    property: getLiteral(index),
+    computed: true,
+    optional: false,
+  };
 }
 
 function nameFunction(name: string | undefined, func: es.FunctionExpression): es.Expression {
