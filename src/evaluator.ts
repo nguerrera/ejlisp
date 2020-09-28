@@ -273,8 +273,7 @@ const environmentPrototype = (function () {
     "=": primitives.numericEqual,
     "make-symbol": primitives.makeSymbol,
     "symbol-name": primitives.symbolName,
-
-    [environmentId.name]: function (this: Environment, key: string) {
+    $: function (this: Environment, key: string) {
       return key in this ? this[key] : notBoundError(key);
     },
   };
