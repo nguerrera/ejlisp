@@ -215,7 +215,7 @@ export function isInteger(value: unknown): value is Integer {
 }
 
 export function integerp(value: unknown): Bool {
-  return Bool(value);
+  return Bool(isInteger(value));
 }
 
 export function isFloat(value: unknown): value is Float {
