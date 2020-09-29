@@ -1,5 +1,5 @@
 import { generate } from "astring";
-import { Nominal, isInterned, print } from "./primitives";
+import { Nominal, isInterned, print, symbolName, Sym, nil, isNull } from "./primitives";
 import * as es from "estree";
 import * as primitives from "./primitives";
 
@@ -29,8 +29,12 @@ export function evaluate(form: unknown, environment: Environment): unknown {
   const lispTree = parse(form);
   const [jsTree, literals] = compile(lispTree);
   const jsText = generate(jsTree);
-  const func = new Function("$", "$$", `"use strict";return (${jsText});`);
-  return func(environment, literals);
+  const func = new Function("$E", "$L", "$G", "$T", `"use strict";return (${jsText});`);
+  return func(environment, literals, get, test);
+
+  function get(key: string) {
+    return key in environment ? environment[key] : notBoundError(key);
+  }
 }
 
 export function compileFormToString(form: unknown) {
@@ -40,7 +44,7 @@ export function compileFormToString(form: unknown) {
 
   let comment = "\n";
   for (let i = 0; i < literals.length; i++) {
-    comment += `// $$[${i}]: ${print(literals[i])}\n`;
+    comment += `// $L[${i}]: ${print(literals[i])}\n`;
   }
 
   return comment + jsText + "\n";
@@ -89,7 +93,7 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
       const id = getFreeSymbolId(get.symbol);
       return {
         type: "CallExpression",
-        callee: environmentGetter,
+        callee: environmentGetterId,
         arguments: [getLiteral(id)],
         optional: false,
       };
@@ -108,8 +112,7 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
   }
 
   function compileIf(conditional: If): es.ConditionalExpression {
-    // BUG: This should test (not nil or false) instead of JavaScript truthiness.
-    const test = compileExpression(conditional.test);
+    const test = getTest(compileExpression(conditional.test));
     const consequent = compileExpression(conditional.then);
     const alternate = compileExpression(conditional.otherwise);
     return {
@@ -162,7 +165,7 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
   }
 
   function compileWhile(loop: While): es.CallExpression {
-    const test = compileExpression(loop.test);
+    const test = getTest(compileExpression(loop.test));
     const body = compileExpression(loop.body);
 
     const loopBody: es.ExpressionStatement = {
@@ -170,7 +173,6 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
       expression: body,
     };
 
-    // BUG: This should test (not nil or false) instead of JavaScript truthiness
     const whileLoop: es.WhileStatement = {
       type: "WhileStatement",
       test,
@@ -196,23 +198,11 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
 }
 
 const nullLiteral = getLiteral(null);
-const environmentId = getIdentifier("$");
-const literalsId = getIdentifier("$$");
-
-const environmentGetter: es.MemberExpression = {
-  type: "MemberExpression",
-  object: environmentId,
-  property: environmentId,
-  computed: false,
-  optional: false,
-};
-
-const undefinedLiteral: es.UnaryExpression = {
-  type: "UnaryExpression",
-  prefix: true,
-  operator: "void",
-  argument: getLiteral(0),
-};
+const environmentId = getIdentifier("$E");
+const literalsId = getIdentifier("$L");
+const environmentGetterId = getIdentifier("$G");
+const testId = getIdentifier("$T");
+const undefinedLiteral = getIdentifier("undefined");
 
 const returnNil: es.ReturnStatement = {
   type: "ReturnStatement",
@@ -227,12 +217,12 @@ const returnNil: es.ReturnStatement = {
  * to different slots if they're not both interned.
  *
  * The same scheme is used for uninterned global variables, but interned global
- * variables keep their descriptive names and are accessed as `$["<name>"]`
- * where `$` is always in scope as the global environment. This helps debugging
+ * variables keep their descriptive names and are accessed as `$E["<name>"]`
+ * where `$E` is always in scope as the global environment. This helps debugging
  * and allows a JavaScript host to easily inject things into the Lisp global
  * environment.
  */
-const symbolIds = new Map<symbol, string>();
+const symbolIds = new Map<Sym, string>();
 
 const environmentPrototype = (function () {
   const constants = {
@@ -256,6 +246,7 @@ const environmentPrototype = (function () {
     eq: primitives.eq,
     listp: primitives.listp,
     not: primitives.not,
+    null: primitives.nullp,
     integerp: primitives.integerp,
     intern: primitives.intern,
     list: primitives.list,
@@ -273,9 +264,6 @@ const environmentPrototype = (function () {
     "=": primitives.numericEqual,
     "make-symbol": primitives.makeSymbol,
     "symbol-name": primitives.symbolName,
-    $: function (this: Environment, key: string) {
-      return key in this ? this[key] : notBoundError(key);
-    },
   };
 
   for (const key in constants) {
@@ -285,25 +273,25 @@ const environmentPrototype = (function () {
   return env;
 })();
 
-function getBoundSymbolId(sym: symbol): string {
+function getBoundSymbolId(sym: Sym): string {
   let id = symbolIds.get(sym);
   if (id === undefined) {
-    id = "$" + symbolIds.size.toString(36);
+    id = "$V" + symbolIds.size.toString(36);
     symbolIds.set(sym, id);
   }
   return id;
 }
 
-function getFreeSymbolId(sym: symbol): string {
-  return sym.description && isInterned(sym) ? sym.description : getBoundSymbolId(sym);
+function getFreeSymbolId(sym: Sym): string {
+  return isInterned(sym) ? symbolName(sym) : getBoundSymbolId(sym);
 }
 
-function getBoundVariable(sym: symbol): es.Identifier {
+function getBoundVariable(sym: Sym): es.Identifier {
   const name = getBoundSymbolId(sym);
   return getIdentifier(name);
 }
 
-function getFreeVariable(sym: symbol): es.MemberExpression {
+function getFreeVariable(sym: Sym): es.MemberExpression {
   const id = getFreeSymbolId(sym);
   return {
     type: "MemberExpression",
@@ -314,7 +302,7 @@ function getFreeVariable(sym: symbol): es.MemberExpression {
   };
 }
 
-function getVariable(sym: symbol, isBound: boolean) {
+function getVariable(sym: Sym, isBound: boolean) {
   return isBound ? getBoundVariable(sym) : getFreeVariable(sym);
 }
 
@@ -332,6 +320,15 @@ function getIndexedLiteral(index: number): es.MemberExpression {
     object: literalsId,
     property: getLiteral(index),
     computed: true,
+    optional: false,
+  };
+}
+
+function getTest(expression: es.Expression): es.CallExpression {
+  return {
+    type: "CallExpression",
+    callee: testId,
+    arguments: [expression],
     optional: false,
   };
 }
@@ -369,4 +366,8 @@ function nameFunction(name: string | undefined, func: es.FunctionExpression): es
 
 function notBoundError(key: string): never {
   throw new TypeError(`'${key}' is not bound.`);
+}
+
+function test(value: unknown) {
+  return !isNull(value) && value !== false;
 }

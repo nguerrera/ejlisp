@@ -1,4 +1,52 @@
 /**
+ * Unique symbol that is private to this module and serves to implement
+ * `Nominal<T>` trick below.
+ *
+ * The `[typename]` property is never actually set and gets erased by
+ * compilation. It is also not offered by code completion outside this file.
+ */
+const typename = Symbol();
+
+/**
+ * Creates an effectively nominal type in TypeScript's structural type system.
+ */
+export interface Nominal<TypeName extends string> {
+  readonly [typename]: TypeName;
+}
+
+/**
+ * Lisp nil value is JS undefined. It appears as an interned symbol named "nil"
+ * to Lisp. It can also be spelled as #undefined to emphasize JS interop.
+ *
+ * JS undefined was chosen over JS null because it allows seamless interop with
+ * optional parameters and optional chaining in JS. The naming is unfortunate.
+ */
+export const nil = undefined;
+
+/**
+ * Lisp null type.
+ *
+ * Both nil and #null (JS null) are considered to null in the sense that (null
+ * nil) and (null #null) are both t. However, (eq nil #null) is nil, and a list
+ * with a final cdr of #null will be printed in dotted form.
+ */
+export type Null = typeof nil | null;
+
+/**
+ * Lisp t value is JS true. It appears as an interned symbol named "t" to Lisp.
+ * It can also be spelled as #true to emphasize JS interop.
+ */
+export const t = true;
+
+/**
+ * Canonical Lisp boolean type: nil (JS null) or t (JS true).
+ *
+ * nil, #false, #undefined are falsy and all other values are truthy, but only
+ * nil and t are canonical booleans.
+ */
+export type Bool = typeof nil | typeof t;
+
+/**
  * Lisp cons cell type.
  *
  * Cons cells are represented as objects with a car and cdr property.
@@ -13,17 +61,9 @@ export interface Cons extends Nominal<"cons"> {
 }
 
 /**
- * Lisp nil type.
- *
- * Both JavaScript null and JavaScript undefined are considered to be lisp nil.
- * Lisp nil will evaluate to JavaScript undefined.
- */
-export type Nil = null | undefined;
-
-/**
  * Lisp list type: cons cell or nil.
  */
-export type List = Cons | Nil;
+export type List = Cons | Null;
 
 /**
  * Lisp vector type: one dimensional array.
@@ -89,44 +129,13 @@ export type Arithmetic<T1 extends Num, T2 extends Num> =
   Num;
 
 /**
- * Unique symbol that is private to this module and serves to implement
- * `Nominal<T>` trick below.
+ * Lisp symbol type.
  *
- * The `[typename]` property is never actually set and gets erased by
- * compilation. It is also not offered by code completion outside this file.
+ * Represented as JavaScript symbol with two exceptions: JavaScript null
+ * represents the interned nil symbol and JavaScript true represents the
+ * interned t symbol.
  */
-const typename = Symbol();
-
-/**
- * Creates an effectively nominal type in TypeScript's structural type system.
- */
-export interface Nominal<TypeName extends string> {
-  readonly [typename]: TypeName;
-}
-
-/**
- * Lisp boolean type: either nil or t.
- *
- * Lisp does not have a true boolean type. Traditionally, nil is falsy and
- * everything else is truthy. t is just the canonical truthy value among many.
- *
- * In this implementation, JavaScript false is considered falsy in addition to
- * nil.
- */
-export type Bool = Nil | typeof t;
-
-/**
- * Lisp nil value. Canonically represented as JavaScript undefined, but
- * considered equivalent to JavaScript null by everything but eq.
- */
-export const nil = undefined;
-
-/**
- * Lisp t value.
- *
- * t is a constant symbol in the environment that evaluates to itself.
- */
-export const t = Symbol.for("t");
+export type Sym = symbol | Bool;
 
 /** Largest integer value that can be represented as a fixnum. */
 export const mostNegativeFixnum = -0x80000000 as Fixnum;
@@ -134,12 +143,12 @@ export const mostNegativeFixnum = -0x80000000 as Fixnum;
 /** Smallest integer value that can be represented as a fixnum. */
 export const mostPositiveFixnum = 0x7fffffff as Fixnum;
 
-export function isNil(value: unknown): value is Nil {
-  return value === null || value === undefined;
+export function isNull(value: unknown): value is Null {
+  return value == null; // null or undefined
 }
 
-export function nilp(value: unknown): Bool {
-  return Bool(isNil(value));
+export function nullp(value: unknown): Bool {
+  return isNull(value) || nil;
 }
 
 export function isCons(value: unknown): value is Cons {
@@ -147,15 +156,15 @@ export function isCons(value: unknown): value is Cons {
 }
 
 export function consp(value: unknown): Bool {
-  return Bool(isCons(value));
+  return isCons(value) || nil;
 }
 
 export function isList(value: unknown): value is List {
-  return isNil(value) || isCons(value);
+  return isCons(value) || isNull(value);
 }
 
 export function listp(value: unknown): Bool {
-  return Bool(isList(value));
+  return isList(value) || nil;
 }
 
 export function isVector(value: unknown): value is Vector {
@@ -163,7 +172,7 @@ export function isVector(value: unknown): value is Vector {
 }
 
 export function vectorp(value: unknown): Bool {
-  return Bool(isVector(value));
+  return isVector(value) || nil;
 }
 
 export function isString(value: unknown): value is string {
@@ -171,15 +180,15 @@ export function isString(value: unknown): value is string {
 }
 
 export function stringp(value: unknown): Bool {
-  return Bool(isString(value));
+  return isString(value) || nil;
 }
 
-export function isSymbol(value: unknown): value is symbol {
-  return typeof value === "symbol";
+export function isSymbol(value: unknown): value is Sym {
+  return value === nil || value === t || typeof value === "symbol";
 }
 
-export function symbolp(value: unknown) {
-  return Bool(isSymbol(value));
+export function symbolp(value: unknown): Bool {
+  return isSymbol(value) || nil;
 }
 
 export function isNumber(value: unknown): value is Num {
@@ -190,24 +199,24 @@ export function isNumber(value: unknown): value is Num {
   );
 }
 
-export function numberp(value: unknown) {
-  return Bool(isNumber(value));
+export function numberp(value: unknown): Bool {
+  return isNumber(value) || nil;
 }
 
 export function isFixnum(value: unknown): value is Fixnum {
   return typeof value === "number" && value === (value | 0);
 }
 
-export function fixnump(value: unknown) {
-  return Bool(isFixnum(value));
+export function fixnump(value: unknown): Bool {
+  return isFixnum(value) || nil;
 }
 
 export function isBignum(value: unknown): value is Bignum {
   return typeof value === "bigint";
 }
 
-export function bignump(value: unknown) {
-  return Bool(isBignum(value));
+export function bignump(value: unknown): Bool {
+  return isBignum(value) || nil;
 }
 
 export function isInteger(value: unknown): value is Integer {
@@ -215,7 +224,7 @@ export function isInteger(value: unknown): value is Integer {
 }
 
 export function integerp(value: unknown): Bool {
-  return Bool(isInteger(value));
+  return isInteger(value) || nil;
 }
 
 export function isFloat(value: unknown): value is Float {
@@ -223,7 +232,7 @@ export function isFloat(value: unknown): value is Float {
 }
 
 export function floatp(value: unknown): Bool {
-  return Bool(isFloat(value));
+  return isFloat(value) || nil;
 }
 
 export function cons(car: unknown, cdr: unknown): Cons {
@@ -231,13 +240,19 @@ export function cons(car: unknown, cdr: unknown): Cons {
 }
 
 export function car(list: List): unknown {
-  isList(list) || listError(list);
-  return list?.car;
+  if (isNull(list)) {
+    return nil;
+  }
+  isCons(list) || listError(list);
+  return list.car;
 }
 
 export function cdr(list: List): unknown {
-  isList(list) || listError(list);
-  return list?.cdr;
+  if (isNull(list)) {
+    return nil;
+  }
+  isCons(list) || listError(list);
+  return list.cdr;
 }
 
 export function setcar<T>(cons: Cons, value: T): T {
@@ -284,25 +299,6 @@ export function Float(value: number | bigint): Float {
   return isFixnum(value) ? new FixnumFloat(value) : (value as Float);
 }
 
-/**
- * Converts a JavaScript value to a lisp boolean.
- *
- * null, undefined, false become nil. Everything else becomes t.
- */
-export function Bool(value: unknown): Bool {
-  !new.target || notAConstructorError(new.target);
-  return isTruthy(value) ? t : nil;
-}
-
-/**
- * Determines if a value is considered truthy in Lisp.
- *
- * null, undefined, false are falsy. Everything else is truthy.
- */
-export function isTruthy(value: unknown): boolean {
-  return !isNil(value) && value !== false;
-}
-
 export function add<T1 extends Num, T2 extends Num>(x: T1, y: T2): Arithmetic<T1, T2>;
 export function add(x: Num, y: Num): Num {
   return isFixnum(x) && isFixnum(y) ? fixnumAdd(x, y) : slowAdd(x, y);
@@ -326,15 +322,15 @@ export function divide(x: Num, y: Num): Num {
 export function numericEqual(x: Num, y: Num): Bool {
   isNumber(x) || numberError(x);
   isNumber(y) || numberError(y);
-  return Bool(x == y);
+  return x == y || nil;
 }
 
 export function eq(x: unknown, y: unknown): Bool {
-  return Bool(x === y);
+  return x === y || nil;
 }
 
 export function not(x: unknown): Bool {
-  return Bool(!isTruthy(x));
+  return x == null || x === false || nil;
 }
 
 export function error(message: string): never {
@@ -371,44 +367,52 @@ export function makeSymbol(name: string): symbol {
 }
 
 /** Gets or creates an interned symbol */
-export function intern(name: string): symbol {
+export function intern(name: string): Sym {
   isString(name) || stringError(name);
+  if (name === "nil") {
+    return nil;
+  }
+  if (name === "t") {
+    return t;
+  }
   return Symbol.for(name);
 }
 
-export function isInterned(symbol: symbol) {
+export function isInterned(symbol: Sym) {
+  if (symbol === nil || symbol === true) {
+    return true;
+  }
+  typeof symbol === "symbol" || symbolError(symbol);
   return Symbol.keyFor(symbol) !== undefined;
 }
 
 /** Gets the name of a symbol. */
-export function symbolName(symbol: symbol): string {
-  isSymbol(symbol) || symbolError(symbol);
-  return symbol.description ?? "";
+export function symbolName(symbol: Sym): string {
+  if (symbol === nil) {
+    return "nil";
+  }
+  if (symbol === t) {
+    return "t";
+  }
+  typeof symbol === "symbol" || symbolError(symbol);
+  return symbol.description || "";
 }
 
 export function print(value: unknown): string {
-  if (value === true) {
-    return "#<true>";
-  }
-
   if (value === false) {
-    return "#<false>";
+    return "#false";
   }
-
   if (value === null) {
-    return "#<null>";
+    return "#null";
   }
 
-  if (isNil(value)) {
-    return "nil";
-  }
-
-  if (typeof value === "function") {
-    return `#<function:${value.name || "(anonymous)"}>`;
-  }
-
-  if (isVector(value)) {
-    return "[" + value.map(print).join(" ") + "]";
+  if (isSymbol(value)) {
+    const name = symbolName(value);
+    if (isInterned(value)) {
+      return name || "##";
+    } else {
+      return `#:${name}`;
+    }
   }
 
   if (isString(value)) {
@@ -423,12 +427,8 @@ export function print(value: unknown): string {
     }
   }
 
-  if (isSymbol(value)) {
-    if (isInterned(value)) {
-      return value.description || "##";
-    } else {
-      return `#:${value.description}`;
-    }
+  if (isVector(value)) {
+    return "[" + value.map(print).join(" ") + "]";
   }
 
   if (isCons(value)) {
@@ -438,11 +438,15 @@ export function print(value: unknown): string {
       s += " " + print(value.car);
       value = value.cdr;
     }
-    if (!isNil(value)) {
+    if (value !== nil) {
       s += " . " + print(value);
     }
     s += ")";
     return s;
+  }
+
+  if (typeof value === "function") {
+    return `#<function:${value.name || "(anonymous)"}>`;
   }
 
   return `#<${typeof value}>`;

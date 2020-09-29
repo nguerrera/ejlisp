@@ -1,4 +1,18 @@
-import { List, Float, Integer, Num, Vector, cons, intern, nil, list, error } from "./primitives";
+import {
+  List,
+  Float,
+  Integer,
+  Num,
+  Vector,
+  cons,
+  intern,
+  nil,
+  list,
+  error,
+  Sym,
+  Bool,
+  symbolName,
+} from "./primitives";
 
 export interface Scanner {
   readonly input: string;
@@ -13,7 +27,7 @@ export interface Scanner {
 /**
  * Any Lisp primitive type that has S-Expression syntax.
  */
-export type Datum = string | symbol | Num | List | Vector;
+export type Datum = string | Sym | Num | List | Vector | Bool | false;
 
 export enum Token {
   None,
@@ -24,6 +38,7 @@ export enum Token {
   CloseSquareBracket,
   Dot,
   Quote,
+  PoundSymbol,
   Symbol,
   String,
   Number,
@@ -81,6 +96,8 @@ export function read(scanner: Scanner): Datum {
       case Token.OpenSquareBracket:
         consume(Token.OpenSquareBracket);
         return readVector();
+      case Token.PoundSymbol:
+        return readPound();
       case Token.Quote:
         return readQuote();
       case Token.Eof:
@@ -108,7 +125,24 @@ export function read(scanner: Scanner): Datum {
     return num;
   }
 
-  function readSymbol() {
+  function readPound() {
+    consume(Token.PoundSymbol);
+    const name = scanner.getTokenText();
+    switch (name) {
+      case "#undefined":
+        return undefined;
+      case "#null":
+        return null;
+      case "#false":
+        return false;
+      case "#true":
+        return true;
+      default:
+        throw error(`Invalid read syntax: '${name}'`);
+    }
+  }
+
+  function readSymbol(): Sym {
     const sym = intern(scanner.getTokenText());
     consume(Token.Symbol);
     return sym;
@@ -214,6 +248,9 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
       case CharCode.CloseSquareBracket:
         position++;
         return Token.CloseSquareBracket;
+      case CharCode.Pound:
+        scanSymbol();
+        return Token.PoundSymbol;
       case CharCode.DoubleQuote:
         return scanString();
       case CharCode.Plus:

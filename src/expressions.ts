@@ -1,4 +1,16 @@
-import { Cons, error, isCons, isList, isNil, isSymbol, List, nil } from "./primitives";
+import {
+  Cons,
+  error,
+  isCons,
+  isList,
+  isNull,
+  isSymbol,
+  List,
+  nil,
+  Sym,
+  symbolName,
+  t,
+} from "./primitives";
 
 export type Expression =
   | Literal
@@ -32,13 +44,13 @@ export interface Literal extends ExpressionBase {
 
 export interface GetVariable extends ExpressionBase {
   readonly kind: ExpressionKind.GetVariable;
-  readonly symbol: symbol;
+  readonly symbol: Sym;
   readonly isBound: boolean;
 }
 
 export interface SetVariable extends ExpressionBase {
   readonly kind: ExpressionKind.SetVariable;
-  readonly symbol: symbol;
+  readonly symbol: Sym;
   readonly value: Expression;
   readonly isBound: boolean;
 }
@@ -63,7 +75,7 @@ export interface While extends ExpressionBase {
 
 export interface Lambda extends ExpressionBase {
   readonly kind: ExpressionKind.Lambda;
-  readonly parameters: readonly symbol[];
+  readonly parameters: readonly Sym[];
   readonly body: Expression;
   readonly name?: string;
 }
@@ -74,11 +86,18 @@ export interface FunctionCall extends ExpressionBase {
   readonly arguments: readonly Expression[];
 }
 
+class BoundVariableSet {
+  public readonly set: ReadonlySet<Sym>;
+  constructor(symbols: Sym[] = [], public parent?: BoundVariableSet) {
+    this.set = new Set<Sym>(symbols);
+  }
+}
+
 /**
  * Parse a Lisp object (usually read from source by read()) into an AST.
  */
 export function parse(form: unknown): Expression {
-  let boundVariables: any = {};
+  let boundVariables: BoundVariableSet | undefined = undefined;
   return parseForm(form);
 
   function parseForm(form: unknown): Expression {
@@ -94,7 +113,7 @@ export function parse(form: unknown): Expression {
   function parseConsForm(list: Cons) {
     const [sym, rest] = expectList(list, _);
     if (isSymbol(sym)) {
-      switch (sym.description) {
+      switch (symbolName(sym)) {
         // special forms
         case "quote":
           return parseQuote(rest);
@@ -119,11 +138,17 @@ export function parse(form: unknown): Expression {
     return parseFunctionCall(list);
   }
 
-  function parseGetVariable(sym: symbol): GetVariable {
+  function parseGetVariable(sym: Sym): GetVariable | Literal {
+    const bound = isBound(sym);
+
+    if (!bound && (sym === nil || sym === t)) {
+      return parseLiteral(sym);
+    }
+
     return {
       kind: ExpressionKind.GetVariable,
       symbol: sym,
-      isBound: isBound(sym),
+      isBound: bound,
     };
   }
 
@@ -172,9 +197,9 @@ export function parse(form: unknown): Expression {
   }
 
   function parseBody(list: List): Expression {
-    if (isNil(list)) {
+    if (isNull(list)) {
       return parseLiteral(nil);
-    } else if (isNil(list.cdr)) {
+    } else if (isNull(list.cdr)) {
       return parseForm(list.car);
     } else {
       return parseProgn(list);
@@ -182,13 +207,12 @@ export function parse(form: unknown): Expression {
   }
 
   function parseLambda(list: List, name?: string): Lambda {
-    let lambda: Lambda;
     const [parameterList, body] = expectList(list, isList);
     const parameters = expectArray(parameterList, isSymbol);
     return parseLambdaBody(parameters, body, name);
   }
 
-  function parseLambdaBody(parameters: symbol[], body: List, name?: string) {
+  function parseLambdaBody(parameters: Sym[], body: List, name?: string) {
     let lambda: Lambda;
     pushBoundVariables(parameters);
     try {
@@ -236,7 +260,7 @@ export function parse(form: unknown): Expression {
     return {
       kind: ExpressionKind.SetVariable,
       symbol: sym,
-      value: parseLambda(lambda, sym.description),
+      value: parseLambda(lambda, symbolName(sym)),
       isBound: false, // defun operates on global not lexical environment
     };
   }
@@ -252,19 +276,21 @@ export function parse(form: unknown): Expression {
     return expressions;
   }
 
-  function isBound(variable: symbol) {
-    return variable in boundVariables;
-  }
-
-  function pushBoundVariables(variables: symbol[]) {
-    boundVariables = Object.create(boundVariables);
-    for (const each of variables) {
-      boundVariables[each] = true;
-    }
+  function pushBoundVariables(variables: Sym[]) {
+    boundVariables = new BoundVariableSet(variables, boundVariables);
   }
 
   function popBoundVariables() {
-    boundVariables = Object.getPrototypeOf(boundVariables);
+    boundVariables = boundVariables!.parent;
+  }
+
+  function isBound(variable: Sym) {
+    for (let bv = boundVariables; bv !== undefined; bv = bv.parent) {
+      if (bv.set.has(variable)) {
+        return true;
+      }
+    }
+    return false;
   }
 }
 
@@ -280,7 +306,7 @@ type CheckedTypes<Predicates extends TypePredicate[]> = {
 };
 
 function expectList<T>(list: List, carType: TypePredicate<T>): [T, List] {
-  if (isNil(list)) {
+  if (isNull(list)) {
     throw error("Expected non-empty list.");
   }
 
@@ -328,7 +354,7 @@ function expect<T>(datum: unknown, typep: TypePredicate<T>) {
 }
 
 function* iterate(list: List) {
-  while (!isNil(list)) {
+  while (!isNull(list)) {
     yield list.car;
     list = expect(list.cdr, isList);
   }
