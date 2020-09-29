@@ -131,7 +131,7 @@ export type Arithmetic<T1 extends Num, T2 extends Num> =
 /**
  * Lisp symbol type.
  *
- * Represented as JavaScript symbol with two exceptions: JavaScript null
+ * Represented as JavaScript symbol with two exceptions: JavaScript undefined
  * represents the interned nil symbol and JavaScript true represents the
  * interned t symbol.
  */
