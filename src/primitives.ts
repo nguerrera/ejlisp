@@ -383,6 +383,10 @@ export function isInterned(symbol: Sym) {
     return true;
   }
   typeof symbol === "symbol" || symbolError(symbol);
+  if (symbol.description === "t" || symbol.description === "nil") {
+    // don't let Symbol.for("t") and Symbol.for("nil") get conflated with t and nil.
+    return false;
+  }
   return Symbol.keyFor(symbol) !== undefined;
 }
 
