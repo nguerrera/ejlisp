@@ -15,36 +15,51 @@ export interface Nominal<TypeName extends string> {
 }
 
 /**
- * Lisp nil value is JS undefined. It appears as an interned symbol named "nil"
- * to Lisp. It can also be spelled as #undefined to emphasize JS interop.
+ * Lisp nil value is JS undefined.
+ *
+ * It appears as an interned symbol named "nil" to Lisp.
+ *
+ * It can also be spelled as #undefined to emphasize JS interop.
  *
  * JS undefined was chosen over JS null because it allows seamless interop with
- * optional parameters and optional chaining in JS. The naming is unfortunate.
+ * optional parameters and optional chaining in JS.
+ *
+ * JS null is available and spelled #null, but somewhat confusingly, (null
+ * #null) is nil. The naming is unfortunate, but allowing for two values in the
+ * Lisp null type is more pain than it's worth given that #null should almost
+ * never be needed in Lisp code. It's only there for the rare JS interop
+ * scenarios.
+ *
+ * The only thing special about #null to Lisp is that it is falsy. Otherwise,
+ * it's just some value that doesn't belong to any of the well-known Lisp types.
  */
 export const nil = undefined;
 
 /**
- * Lisp null type.
+ * Lisp t value is JS true.
  *
- * Both nil and #null (JS null) are considered to null in the sense that (null
- * nil) and (null #null) are both t. However, (eq nil #null) is nil, and a list
- * with a final cdr of #null will be printed in dotted form.
- */
-export type Null = typeof nil | null;
-
-/**
- * Lisp t value is JS true. It appears as an interned symbol named "t" to Lisp.
+ * It appears as an interned symbol named "t" to Lisp.
+ *
  * It can also be spelled as #true to emphasize JS interop.
  */
 export const t = true;
 
 /**
- * Canonical Lisp boolean type: nil (JS null) or t (JS true).
+ * Canonical Lisp boolean type: nil or t.
  *
- * nil, #false, #undefined are falsy and all other values are truthy, but only
- * nil and t are canonical booleans.
+ * nil (aka #undefined), #false, and #null are falsy and all other values are
+ * truthy, but only nil (aka #undefined) and t (#true) are canonical booleans.
  */
 export type Bool = typeof nil | typeof t;
+
+/**
+ * Lisp symbol type.
+ *
+ * Represented as JavaScript symbol with two exceptions: JavaScript undefined
+ * represents the interned nil symbol and JavaScript true represents the
+ * interned t symbol.
+ */
+export type Sym = symbol | Bool;
 
 /**
  * Lisp cons cell type.
@@ -63,7 +78,7 @@ export interface Cons extends Nominal<"cons"> {
 /**
  * Lisp list type: cons cell or nil.
  */
-export type List = Cons | Null;
+export type List = Cons | typeof nil;
 
 /**
  * Lisp vector type: one dimensional array.
@@ -128,27 +143,22 @@ export type Arithmetic<T1 extends Num, T2 extends Num> =
   T1 extends Integer ? (T2 extends Integer ? Integer : Num) :
   Num;
 
-/**
- * Lisp symbol type.
- *
- * Represented as JavaScript symbol with two exceptions: JavaScript undefined
- * represents the interned nil symbol and JavaScript true represents the
- * interned t symbol.
- */
-export type Sym = symbol | Bool;
-
 /** Largest integer value that can be represented as a fixnum. */
 export const mostNegativeFixnum = -0x80000000 as Fixnum;
 
 /** Smallest integer value that can be represented as a fixnum. */
 export const mostPositiveFixnum = 0x7fffffff as Fixnum;
 
-export function isNull(value: unknown): value is Null {
-  return value == null; // null or undefined
+export function nilp(value: unknown): Bool {
+  return value === nil || nil;
 }
 
-export function nullp(value: unknown): Bool {
-  return isNull(value) || nil;
+export function isBool(value: unknown): value is Bool {
+  return value === nil || value === t;
+}
+
+export function booleanp(value: unknown): Bool {
+  return isBool(value) || nil;
 }
 
 export function isCons(value: unknown): value is Cons {
@@ -160,7 +170,7 @@ export function consp(value: unknown): Bool {
 }
 
 export function isList(value: unknown): value is List {
-  return isCons(value) || isNull(value);
+  return isCons(value) || value === nil;
 }
 
 export function listp(value: unknown): Bool {
@@ -184,7 +194,7 @@ export function stringp(value: unknown): Bool {
 }
 
 export function isSymbol(value: unknown): value is Sym {
-  return value === nil || value === t || typeof value === "symbol";
+  return isBool(value) || typeof value === "symbol";
 }
 
 export function symbolp(value: unknown): Bool {
@@ -240,7 +250,7 @@ export function cons(car: unknown, cdr: unknown): Cons {
 }
 
 export function car(list: List): unknown {
-  if (isNull(list)) {
+  if (list === nil) {
     return nil;
   }
   isCons(list) || listError(list);
@@ -248,7 +258,7 @@ export function car(list: List): unknown {
 }
 
 export function cdr(list: List): unknown {
-  if (isNull(list)) {
+  if (list === nil) {
     return nil;
   }
   isCons(list) || listError(list);
@@ -330,7 +340,7 @@ export function eq(x: unknown, y: unknown): Bool {
 }
 
 export function not(x: unknown): Bool {
-  return x == null || x === false || nil;
+  return x == nil || x === false || nil;
 }
 
 export function error(message: string): never {

@@ -1,5 +1,5 @@
 import { generate } from "astring";
-import { Nominal, isInterned, print, symbolName, Sym, nil, isNull } from "./primitives";
+import { Nominal, isInterned, print, symbolName, nil } from "./primitives";
 import * as es from "estree";
 import * as primitives from "./primitives";
 
@@ -93,7 +93,7 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
       const id = getFreeSymbolId(get.symbol);
       return {
         type: "CallExpression",
-        callee: environmentGetterId,
+        callee: variableGetterId,
         arguments: [getLiteral(id)],
         optional: false,
       };
@@ -126,8 +126,8 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
   function compileLiteral(literal: Literal): es.Expression {
     const value = literal.value;
 
-    if (value === undefined) {
-      return undefinedLiteral;
+    if (value === nil) {
+      return nilLiteral;
     }
 
     if (value === null) {
@@ -198,16 +198,12 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
 }
 
 const nullLiteral = getLiteral(null);
+const nilLiteral = getIdentifier("undefined");
 const environmentId = getIdentifier("$E");
 const literalsId = getIdentifier("$L");
-const environmentGetterId = getIdentifier("$G");
-const testId = getIdentifier("$T");
-const undefinedLiteral = getIdentifier("undefined");
-
-const returnNil: es.ReturnStatement = {
-  type: "ReturnStatement",
-  argument: undefinedLiteral,
-};
+const variableGetterId = getIdentifier("$G");
+const testerId = getIdentifier("$T");
+const returnNil: es.ReturnStatement = { type: "ReturnStatement", argument: nilLiteral };
 
 /**
  * Map symbols to unique strings that are safe JavaScript identifiers. This
@@ -222,7 +218,7 @@ const returnNil: es.ReturnStatement = {
  * and allows a JavaScript host to easily inject things into the Lisp global
  * environment.
  */
-const symbolIds = new Map<Sym, string>();
+const symbolIds = new Map<symbol, string>();
 
 const environmentPrototype = (function () {
   const constants = {
@@ -231,9 +227,11 @@ const environmentPrototype = (function () {
     "most-positive-fixnum": primitives.mostPositiveFixnum,
     "most-negative-fixnum": primitives.mostNegativeFixnum,
   };
+
   const env = {
     ...constants,
     bignump: primitives.bignump,
+    booleanp: primitives.booleanp,
     car: primitives.car,
     cdr: primitives.cdr,
     cons: primitives.cons,
@@ -246,7 +244,7 @@ const environmentPrototype = (function () {
     eq: primitives.eq,
     listp: primitives.listp,
     not: primitives.not,
-    null: primitives.nullp,
+    null: primitives.nilp,
     integerp: primitives.integerp,
     intern: primitives.intern,
     list: primitives.list,
@@ -273,7 +271,7 @@ const environmentPrototype = (function () {
   return env;
 })();
 
-function getBoundSymbolId(sym: Sym): string {
+function getBoundSymbolId(sym: symbol): string {
   let id = symbolIds.get(sym);
   if (id === undefined) {
     id = "$V" + symbolIds.size.toString(36);
@@ -282,16 +280,16 @@ function getBoundSymbolId(sym: Sym): string {
   return id;
 }
 
-function getFreeSymbolId(sym: Sym): string {
+function getFreeSymbolId(sym: symbol): string {
   return isInterned(sym) ? symbolName(sym) : getBoundSymbolId(sym);
 }
 
-function getBoundVariable(sym: Sym): es.Identifier {
+function getBoundVariable(sym: symbol): es.Identifier {
   const name = getBoundSymbolId(sym);
   return getIdentifier(name);
 }
 
-function getFreeVariable(sym: Sym): es.MemberExpression {
+function getFreeVariable(sym: symbol): es.MemberExpression {
   const id = getFreeSymbolId(sym);
   return {
     type: "MemberExpression",
@@ -302,7 +300,7 @@ function getFreeVariable(sym: Sym): es.MemberExpression {
   };
 }
 
-function getVariable(sym: Sym, isBound: boolean) {
+function getVariable(sym: symbol, isBound: boolean) {
   return isBound ? getBoundVariable(sym) : getFreeVariable(sym);
 }
 
@@ -327,7 +325,7 @@ function getIndexedLiteral(index: number): es.MemberExpression {
 function getTest(expression: es.Expression): es.CallExpression {
   return {
     type: "CallExpression",
-    callee: testId,
+    callee: testerId,
     arguments: [expression],
     optional: false,
   };
@@ -369,5 +367,5 @@ function notBoundError(key: string): never {
 }
 
 function test(value: unknown) {
-  return !isNull(value) && value !== false;
+  return value != nil && value !== false;
 }

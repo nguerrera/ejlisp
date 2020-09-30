@@ -25,9 +25,9 @@ export interface Scanner {
 }
 
 /**
- * Any Lisp primitive type that has S-Expression syntax.
+ * Union of all types with S-Expression syntax.
  */
-export type Datum = string | Sym | Num | List | Vector | Bool | false;
+export type Datum = string | Sym | Num | List | Vector | false | null;
 
 export enum Token {
   None,

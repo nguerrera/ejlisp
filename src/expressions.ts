@@ -1,9 +1,9 @@
 import {
   Cons,
   error,
+  isBool,
   isCons,
   isList,
-  isNull,
   isSymbol,
   List,
   nil,
@@ -44,13 +44,13 @@ export interface Literal extends ExpressionBase {
 
 export interface GetVariable extends ExpressionBase {
   readonly kind: ExpressionKind.GetVariable;
-  readonly symbol: Sym;
+  readonly symbol: symbol;
   readonly isBound: boolean;
 }
 
 export interface SetVariable extends ExpressionBase {
   readonly kind: ExpressionKind.SetVariable;
-  readonly symbol: Sym;
+  readonly symbol: symbol;
   readonly value: Expression;
   readonly isBound: boolean;
 }
@@ -75,7 +75,7 @@ export interface While extends ExpressionBase {
 
 export interface Lambda extends ExpressionBase {
   readonly kind: ExpressionKind.Lambda;
-  readonly parameters: readonly Sym[];
+  readonly parameters: readonly symbol[];
   readonly body: Expression;
   readonly name?: string;
 }
@@ -87,9 +87,9 @@ export interface FunctionCall extends ExpressionBase {
 }
 
 class BoundVariableSet {
-  public readonly set: ReadonlySet<Sym>;
-  constructor(symbols: Sym[] = [], public parent?: BoundVariableSet) {
-    this.set = new Set<Sym>(symbols);
+  public readonly set: ReadonlySet<symbol>;
+  constructor(symbols: readonly symbol[], public parent?: BoundVariableSet) {
+    this.set = new Set<symbol>(symbols);
   }
 }
 
@@ -139,16 +139,14 @@ export function parse(form: unknown): Expression {
   }
 
   function parseGetVariable(sym: Sym): GetVariable | Literal {
-    const bound = isBound(sym);
-
-    if (!bound && (sym === nil || sym === t)) {
+    if (sym === nil || sym === t) {
       return parseLiteral(sym);
     }
 
     return {
       kind: ExpressionKind.GetVariable,
       symbol: sym,
-      isBound: bound,
+      isBound: isBound(sym),
     };
   }
 
@@ -158,7 +156,7 @@ export function parse(form: unknown): Expression {
   }
 
   function parseSetq(rest: List): SetVariable {
-    const [sym, value] = expectTuple(rest, isSymbol, _);
+    const [sym, value] = expectTuple(rest, isVariableSymbol, _);
     return {
       kind: ExpressionKind.SetVariable,
       symbol: sym,
@@ -197,9 +195,9 @@ export function parse(form: unknown): Expression {
   }
 
   function parseBody(list: List): Expression {
-    if (isNull(list)) {
+    if (list === nil) {
       return parseLiteral(nil);
-    } else if (isNull(list.cdr)) {
+    } else if (list.cdr === nil) {
       return parseForm(list.car);
     } else {
       return parseProgn(list);
@@ -208,11 +206,11 @@ export function parse(form: unknown): Expression {
 
   function parseLambda(list: List, name?: string): Lambda {
     const [parameterList, body] = expectList(list, isList);
-    const parameters = expectArray(parameterList, isSymbol);
+    const parameters = expectArray(parameterList, isVariableSymbol);
     return parseLambdaBody(parameters, body, name);
   }
 
-  function parseLambdaBody(parameters: Sym[], body: List, name?: string) {
+  function parseLambdaBody(parameters: symbol[], body: List, name?: string) {
     let lambda: Lambda;
     pushBoundVariables(parameters);
     try {
@@ -244,7 +242,7 @@ export function parse(form: unknown): Expression {
   function parseLet(rest: List): FunctionCall {
     const [bindingList, body] = expectList(rest, isList);
     const bindings = expectArray(bindingList, isCons);
-    const parameters = bindings.map(list => expect(list.car, isSymbol));
+    const parameters = bindings.map(list => expect(list.car, isVariableSymbol));
     const args = bindings.map(list => expectTuple(expect(list.cdr, isList), _)[0]);
     const lambda = parseLambdaBody(parameters, body);
 
@@ -256,7 +254,7 @@ export function parse(form: unknown): Expression {
   }
 
   function parseDefun(rest: List): SetVariable {
-    const [sym, lambda] = expectList(rest, isSymbol);
+    const [sym, lambda] = expectList(rest, isVariableSymbol);
     return {
       kind: ExpressionKind.SetVariable,
       symbol: sym,
@@ -276,7 +274,7 @@ export function parse(form: unknown): Expression {
     return expressions;
   }
 
-  function pushBoundVariables(variables: Sym[]) {
+  function pushBoundVariables(variables: symbol[]) {
     boundVariables = new BoundVariableSet(variables, boundVariables);
   }
 
@@ -284,7 +282,7 @@ export function parse(form: unknown): Expression {
     boundVariables = boundVariables!.parent;
   }
 
-  function isBound(variable: Sym) {
+  function isBound(variable: symbol) {
     for (let bv = boundVariables; bv !== undefined; bv = bv.parent) {
       if (bv.set.has(variable)) {
         return true;
@@ -306,7 +304,7 @@ type CheckedTypes<Predicates extends TypePredicate[]> = {
 };
 
 function expectList<T>(list: List, carType: TypePredicate<T>): [T, List] {
-  if (isNull(list)) {
+  if (list === nil) {
     throw error("Expected non-empty list.");
   }
 
@@ -354,7 +352,7 @@ function expect<T>(datum: unknown, typep: TypePredicate<T>) {
 }
 
 function* iterate(list: List) {
-  while (!isNull(list)) {
+  while (list !== nil) {
     yield list.car;
     list = expect(list.cdr, isList);
   }
@@ -362,4 +360,11 @@ function* iterate(list: List) {
 
 function _(_value: unknown): _value is unknown {
   return true;
+}
+
+function isVariableSymbol(value: unknown): value is symbol {
+  if (isBool(value)) {
+    error(`${value === t ? "t" : "nil"} cannot be used as a variable.`);
+  }
+  return typeof value === "symbol";
 }

@@ -25,7 +25,7 @@ describe("truthiness", () => {
     ["#false", false],
     ["nil", nil],
     ["t", t],
-    ["(null #null)", t],
+    ["(null #null)", nil],
     ["(null #undefined)", t],
     ["(null #true)", nil],
     ["(null #false)", nil],
