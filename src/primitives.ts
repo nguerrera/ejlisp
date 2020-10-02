@@ -149,6 +149,8 @@ export const mostNegativeFixnum = -0x80000000 as Fixnum;
 /** Smallest integer value that can be represented as a fixnum. */
 export const mostPositiveFixnum = 0x7fffffff as Fixnum;
 
+const internedSymbols = new Map<string | undefined, symbol>();
+
 export function nilp(value: unknown): Bool {
   return value === nil || nil;
 }
@@ -382,22 +384,22 @@ export function intern(name: string): Sym {
   if (name === "nil") {
     return nil;
   }
+
   if (name === "t") {
     return t;
   }
-  return Symbol.for(name);
+
+  let sym = internedSymbols.get(name);
+  if (sym === undefined) {
+    sym = Symbol(name);
+    internedSymbols.set(name, sym);
+  }
+
+  return sym;
 }
 
 export function isInterned(symbol: Sym) {
-  if (symbol === nil || symbol === true) {
-    return true;
-  }
-  typeof symbol === "symbol" || symbolError(symbol);
-  if (symbol.description === "t" || symbol.description === "nil") {
-    // don't let Symbol.for("t") and Symbol.for("nil") get conflated with t and nil.
-    return false;
-  }
-  return Symbol.keyFor(symbol) !== undefined;
+  return isBool(symbol) || symbol === internedSymbols.get(symbol.description);
 }
 
 /** Gets the name of a symbol. */
@@ -405,9 +407,11 @@ export function symbolName(symbol: Sym): string {
   if (symbol === nil) {
     return "nil";
   }
+
   if (symbol === t) {
     return "t";
   }
+
   typeof symbol === "symbol" || symbolError(symbol);
   return symbol.description || "";
 }
@@ -416,6 +420,7 @@ export function print(value: unknown): string {
   if (value === false) {
     return "#false";
   }
+
   if (value === null) {
     return "#null";
   }
@@ -460,7 +465,7 @@ export function print(value: unknown): string {
   }
 
   if (typeof value === "function") {
-    return `#<function:${value.name || "(anonymous)"}>`;
+    return `#<function ${value.name || "(anonymous)"}>`;
   }
 
   return `#<${typeof value}>`;

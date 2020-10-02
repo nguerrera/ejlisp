@@ -1,13 +1,13 @@
 import {
   Cons,
+  List,
+  Sym,
   error,
   isBool,
   isCons,
   isList,
   isSymbol,
-  List,
   nil,
-  Sym,
   symbolName,
   t,
 } from "./primitives";
@@ -139,7 +139,7 @@ export function parse(form: unknown): Expression {
   }
 
   function parseGetVariable(sym: Sym): GetVariable | Literal {
-    if (sym === nil || sym === t) {
+    if (isBool(sym)) {
       return parseLiteral(sym);
     }
 
