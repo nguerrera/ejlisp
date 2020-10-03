@@ -43,5 +43,5 @@ export function repl() {
 }
 
 function readline(query: string) {
-  return question(query, { keepWhitespace: true }).trimRight();
+  return question(query, { keepWhitespace: true });
 }

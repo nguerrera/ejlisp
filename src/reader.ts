@@ -3,15 +3,13 @@ import {
   Float,
   Integer,
   Num,
+  Sym,
   Vector,
+  error,
   cons,
   intern,
-  nil,
   list,
-  error,
-  Sym,
-  Bool,
-  symbolName,
+  nil,
 } from "./primitives";
 
 export interface Scanner {
@@ -19,6 +17,7 @@ export interface Scanner {
   readonly position: number;
   readonly token: Token;
   readonly tokenPosition: number;
+  readonly tokenEnd: number;
   scan(): Token;
   getTokenText(): string;
   appendInput(input: string): void;
@@ -69,6 +68,7 @@ export const enum CharCode {
   Dot = 46,
   Slash = 47,
   Colon = 58,
+  Semicolon = 59,
   Equal = 61,
   OpenSquareBracket = 91,
   CloseSquareBracket = 93,
@@ -103,7 +103,7 @@ export function read(scanner: Scanner): Datum {
       case Token.Eof:
         throw error("Unexpected end of file.");
       default:
-        throw error(`Invalid token: ${Token[scanner.token]}`);
+        throw error(`Invalid token: ${Token[token()]}`);
     }
   }
 
@@ -173,7 +173,7 @@ export function read(scanner: Scanner): Datum {
   }
 
   function token() {
-    return currentToken == Token.None ? (currentToken = scanner.scan()) : currentToken;
+    return currentToken === Token.None ? (currentToken = scanner.scan()) : currentToken;
   }
 
   function tryConsume(expected: Token) {
@@ -200,6 +200,7 @@ export function read(scanner: Scanner): Datum {
 export function createScanner(input: string, eofHandler = () => {}): Scanner {
   let position = 0;
   let tokenPosition = 0;
+  let tokenEnd = 0;
   let token = Token.None;
 
   //prettier-ignore
@@ -207,6 +208,7 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
     get position() { return position; },
     get token() {  return token; },
     get tokenPosition() { return tokenPosition; },
+    get tokenEnd() { return tokenEnd; },
     get input() { return input; },
     scan,
     getTokenText,
@@ -214,13 +216,16 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
   }
 
   function scan(): Token {
-    skipWhitespace();
+    skipLeadingTrivia();
     tokenPosition = position;
-    return (token = scanToken());
+    token = scanToken();
+    tokenEnd = position;
+    skipTrailingTrivia();
+    return token;
   }
 
   function getTokenText() {
-    return input.substring(tokenPosition, position);
+    return input.substring(tokenPosition, tokenEnd);
   }
 
   function appendInput(moreInput: string) {
@@ -228,6 +233,10 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
   }
 
   function scanToken(): Token {
+    if (position === input.length) {
+      return Token.Eof;
+    }
+
     const ch = input.charCodeAt(position);
     switch (ch) {
       case CharCode.OpenParenthesis:
@@ -258,15 +267,15 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
         if (isNumberStart(input.charCodeAt(position + 1))) {
           return scanNumber();
         }
-        break;
-    }
-
-    if (isNumberStart(ch)) {
-      return scanNumber();
-    } else if (isSymbolStart(ch)) {
-      return scanSymbol();
-    } else {
-      throw error(`Invalid token: ${input.charAt(position)}`);
+      // fallthrough
+      default:
+        if (isNumberStart(ch)) {
+          return scanNumber();
+        } else if (isSymbolStart(ch)) {
+          return scanSymbol();
+        } else {
+          throw error(`Invalid token: ${input.charAt(position)}`);
+        }
     }
   }
 
@@ -305,9 +314,20 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
     return Token.Number;
   }
 
-  function skipWhitespace() {
-    while (!eof()) {
+  function skipLeadingTrivia() {
+    skipTrivia(true);
+  }
+
+  function skipTrailingTrivia() {
+    skipTrivia(false);
+  }
+
+  function skipTrivia(useHandler: boolean) {
+    while (!eof(useHandler)) {
       switch (input.charCodeAt(position)) {
+        case CharCode.Semicolon:
+          skipComment();
+          continue;
         case CharCode.Tab:
         case CharCode.LineFeed:
         case CharCode.CarriageReturn:
@@ -320,8 +340,16 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
     }
   }
 
-  function eof() {
-    if (position === input.length) {
+  function skipComment() {
+    let ch: number;
+    do {
+      position++;
+      ch = input.charCodeAt(position);
+    } while (position < input.length && ch != CharCode.CarriageReturn && ch != CharCode.LineFeed);
+  }
+
+  function eof(useHandler = true) {
+    if (useHandler && position === input.length) {
       eofHandler();
     }
     return position === input.length;
@@ -345,7 +373,7 @@ function isSymbolStart(ch: number) {
     ch === CharCode.Asterisk ||
     ch === CharCode.Slash ||
     ch === CharCode.Equal ||
-    ch == CharCode.Colon
+    ch === CharCode.Colon
   );
 }
 
