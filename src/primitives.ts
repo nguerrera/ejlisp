@@ -1,3 +1,5 @@
+import { isSymbolChar } from "./characters";
+
 /**
  * Unique symbol that is private to this module and serves to implement
  * `Nominal<T>` trick below.
@@ -358,7 +360,7 @@ export function eql(x: unknown, y: unknown): Bool {
 }
 
 export function not(x: unknown): Bool {
-  return x == nil || x === false || nil;
+  return x === nil || x === null || x === false || nil;
 }
 
 export function error(message: string): never {
@@ -432,6 +434,25 @@ export function symbolName(symbol: Sym): string {
   return symbol.description || "";
 }
 
+export function escapedSymbolName(symbol: Sym): string {
+  const name = symbolName(symbol);
+  let start = 0;
+  let pos = 0;
+  let s = "";
+
+  for (; pos < name.length; pos++) {
+    const ch = name.charCodeAt(pos);
+    if (!isSymbolChar(ch)) {
+      s += name.substring(start, pos);
+      s += "\\";
+      start = pos;
+    }
+  }
+
+  s += name.substring(start, pos);
+  return s;
+}
+
 export function print(value: unknown): string {
   if (value === false) {
     return "#false";
@@ -442,7 +463,7 @@ export function print(value: unknown): string {
   }
 
   if (isSymbol(value)) {
-    const name = symbolName(value);
+    const name = escapedSymbolName(value);
     if (isInterned(value)) {
       return name || "##";
     } else {

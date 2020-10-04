@@ -12,6 +12,8 @@ import {
   nil,
 } from "./primitives";
 
+import { CharCode, isDelimiter, isDigit, isSymbolChar, isWhitespace } from "./characters";
+
 export interface Scanner {
   readonly input: string;
   readonly position: number;
@@ -57,51 +59,6 @@ export type NumberToken =
 /** A token that represents a symbol */
 export type SymbolToken = Token.Symbol | Token.EscapedSymbol;
 
-/**
- * Maps names of well-known characters to UTF-16 code unit numeric value
- */
-// prettier-ignore
-export const enum CharCode {
-  Tab = 9,
-  LineFeed = 10,
-  CarriageReturn = 13,
-  Space = 32,
-  Bang = 33,
-  DoubleQuote = 34,
-  Pound = 35,
-  Dollar = 36,
-  Percent = 37,
-  Ampersand = 38,
-  Quote = 39,
-  OpenParenthesis = 40,
-  CloseParenthesis = 41,
-  Asterisk = 42,
-  Plus = 43,
-  Comma = 44,
-  Minus = 45,
-  Dot = 46,
-  Slash = 47,
-  Colon = 58,
-  Semicolon = 59,
-  LessThan = 60,
-  Equal = 61,
-  GreaterThan = 62,
-  Question = 63,
-  At = 64,
-  OpenSquareBracket = 91,
-  Backslash = 92,
-  CloseSquareBracket = 93,
-  Circumflex = 94,
-  Underscore = 95,
-  OpenBrace = 123,
-  CloseBrace = 125,
-  Tilde = 126,
-
-  A = 65, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-  a = 97, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z,
-  _0 = 48, _1, _2, _3, _4, _5, _6, _7, _8, _9,
-}
-
 export function read(scanner: Scanner): Datum {
   let currentToken = Token.None;
   return readDatum();
@@ -116,13 +73,13 @@ export function read(scanner: Scanner): Datum {
         return readFloat();
       case Token.NaN:
         consume(Token.NaN);
-        return NaN;
+        return Number.NaN;
       case Token.PositiveInfinity:
         consume(Token.PositiveInfinity);
-        return Infinity;
+        return Number.POSITIVE_INFINITY;
       case Token.NegativeInfinity:
         consume(Token.NegativeInfinity);
-        return -Infinity;
+        return Number.NEGATIVE_INFINITY;
       case Token.EscapedSymbol:
         return readEscapedSymbol();
       case Token.Symbol:
@@ -156,13 +113,14 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readInteger() {
-    let text = scanner.getTokenText();
     consume(Token.Integer);
+    let text = scanner.getTokenText();
 
     if (text.length < 10) {
       return Integer(Number(text));
     }
 
+    // BigInt does not allow trailing decimal point
     if (text.charCodeAt(text.length - 1) === CharCode.Dot) {
       text = text.slice(0, -1);
     }
@@ -171,9 +129,9 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readFloat() {
+    consume(Token.Float);
     const text = scanner.getTokenText();
     const num = Float(Number(text));
-    consume(Token.Float);
     return num;
   }
 
@@ -195,21 +153,21 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readEscapedSymbol(): Sym {
+    consume(Token.EscapedSymbol);
+
     let input = scanner.getTokenText();
     let start = 0;
     let pos = 0;
     let s = "";
 
-    while (pos < input.length) {
+    for (; pos < input.length; pos++) {
       if (input.charCodeAt(pos) === CharCode.Backslash) {
         s += input.substring(start, pos);
         start = pos + 1;
       }
-      pos++;
     }
 
     s += input.substring(start, pos);
-    consume(Token.EscapedSymbol);
     return intern(s);
   }
 
@@ -366,10 +324,10 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
   //  * `1`:  integer (positive one)
   //  * `+1`: integer (positive one)
   //  * `-1`: integer (negative one)
-  //  * `1+`: symbol  (function to add 1)
-  //  * `1-`: symbol  (function to subtract 1)
-  //  * `+`:  symbol  (function to add)
-  //  * `-`:  symbol  (function to add 1)
+  //  * `1+`: symbol  (function that adds one)
+  //  * `1-`: symbol  (function that subtracts one)
+  //  * `+`:  symbol  (function that adds)
+  //  * `-`:  symbol  (function thaat subtracts)
   //
   // The way this works is that anything with a leading `+`, `-`, or digit that
   // fails to scan as a number is a symbol. (This can lead to some surprises
@@ -449,7 +407,7 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
     return atDelimiter() ? numberToken : scanSymbol();
   }
 
-  function scanSymbol() {
+  function scanSymbol(): SymbolToken {
     let escaped = false;
 
     while (position < input.length) {
@@ -501,15 +459,11 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
       const ch = input.charCodeAt(position);
       if (ch === CharCode.Semicolon) {
         skipComment();
-        continue;
-      }
-
-      if (isWhitespace(ch)) {
+      } else if (isWhitespace(ch)) {
         position++;
-        continue;
+      } else {
+        break;
       }
-
-      break;
     }
   }
 
@@ -518,7 +472,7 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
     do {
       position++;
       ch = input.charCodeAt(position);
-    } while (position < input.length && ch != CharCode.CarriageReturn && ch != CharCode.LineFeed);
+    } while (position < input.length && ch !== CharCode.CarriageReturn && ch !== CharCode.LineFeed);
   }
 
   function eof(useHandler = true) {
@@ -549,8 +503,8 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
   function match3(ch1: number, ch2: number, ch3: number) {
     if (
       input.charCodeAt(position) !== ch1 ||
-      input.charCodeAt(position + 1) != ch2 ||
-      input.charCodeAt(position + 2) != ch3
+      input.charCodeAt(position + 1) !== ch2 ||
+      input.charCodeAt(position + 2) !== ch3
     ) {
       return false;
     }
@@ -558,64 +512,4 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
     position += 3;
     return true;
   }
-}
-
-//
-// TODO: See how well optimized these are and consider making a table over all ascii chars.
-//
-
-function isDigit(ch: number) {
-  return ch >= CharCode._0 && ch <= CharCode._9;
-}
-
-function isAsciiLetter(ch: number) {
-  return (ch >= CharCode.A && ch <= CharCode.Z) || (ch >= CharCode.a && ch <= CharCode.z);
-}
-
-function isDelimiter(ch: number) {
-  return isWhitespace(ch) || !isSymbolChar(ch);
-}
-
-function isSymbolChar(ch: number) {
-  return (
-    isAsciiLetter(ch) ||
-    isDigit(ch) ||
-    isSymbolPunctuation(ch) ||
-    ch == CharCode.Backslash ||
-    ch >= 128
-  );
-}
-
-function isWhitespace(ch: number) {
-  return (
-    ch === CharCode.Space ||
-    ch === CharCode.Tab ||
-    ch === CharCode.CarriageReturn ||
-    ch === CharCode.LineFeed
-  );
-}
-
-function isSymbolPunctuation(ch: number) {
-  return (
-    ch === CharCode.Minus ||
-    ch === CharCode.Plus ||
-    ch === CharCode.Equal ||
-    ch === CharCode.Asterisk ||
-    ch === CharCode.Slash ||
-    ch === CharCode.Underscore ||
-    ch === CharCode.Tilde ||
-    ch === CharCode.Bang ||
-    ch === CharCode.At ||
-    ch === CharCode.Dollar ||
-    ch === CharCode.Percent ||
-    ch === CharCode.Circumflex ||
-    ch === CharCode.Ampersand ||
-    ch === CharCode.Colon ||
-    ch === CharCode.LessThan ||
-    ch === CharCode.GreaterThan ||
-    ch === CharCode.OpenBrace ||
-    ch === CharCode.CloseBrace ||
-    ch === CharCode.Question ||
-    ch === CharCode.Dot
-  );
 }

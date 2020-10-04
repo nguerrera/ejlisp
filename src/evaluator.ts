@@ -388,5 +388,5 @@ function notBoundError(key: string): never {
 }
 
 function test(value: unknown) {
-  return value != nil && value !== false;
+  return value !== nil && value !== null && value !== false;
 }

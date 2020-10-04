@@ -35,7 +35,7 @@ export function repl() {
         const datum = read(scanner);
         const value = evaluate(datum, environment);
         console.log(print(value));
-      } while (!done && scanner.position != scanner.input.length);
+      } while (!done && scanner.position !== scanner.input.length);
     } catch (e) {
       console.log(e);
     }
