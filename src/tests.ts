@@ -1,12 +1,16 @@
-import { assert } from "chai";
+import { assert, AssertionError } from "chai";
 import { createEnvironment, evaluate } from "./evaluator";
-import { nil, print, t } from "./primitives";
+import { eql, intern, nil, print, t } from "./primitives";
 import { createScanner, read } from "./reader";
 
 describe("arithmetic", () => {
   describeEvaluation(
     ["(+ 1 1)", 2],
     ["(/ 1 3)", 0],
+    ["(/ 1 0)", "#<error>"],
+    ["(/ 1.0 0)", Infinity],
+    ["(/ -1.0 0)", -Infinity],
+    ["(/ 0.0 0)", NaN],
     ["(/ 1.0 3)", 1.0 / 3.0],
     ["(+ most-positive-fixnum 1)", 2147483648n],
     ["(- most-negative-fixnum 1)", -2147483649n],
@@ -63,14 +67,82 @@ describe("truthiness", () => {
   );
 });
 
+describe("symbol and number reading", () => {
+  describeEvaluation(
+    ["1", 1],
+    ["2.", 2],
+    [".3", 0.3],
+    [".4e5", 0.4e5],
+    [".5E+6", 0.5e6],
+    ["1.0e+INF", Infinity],
+    ["-1.0e+INF", -Infinity],
+    ["0.0e+NaN", NaN],
+    ["'1+", intern("1+")],
+    ["'1-", intern("1-")],
+    ["'+", intern("+")],
+    ["'-", intern("-")],
+    ["+1", 1],
+    ["-1", -1],
+    ["'a\\(b", intern("a(b")]
+  );
+});
+
+describe("functions", () => {
+  it("can compute a factorial recursively", () => {
+    const src = `
+      (defun fact (n)
+        (if (= n 0)
+            1
+            (* n (fact (- n 1)))))`;
+
+    const fact = evaluateText(src) as Function;
+    assert.strictEqual(fact(5), 120);
+    assert.strictEqual(fact(20), 2432902008176640000n);
+  });
+
+  it("can compute a factorial iteratively", () => {
+    const src = `
+      (defun fact (n)
+        (let ((v 1))
+          (while (not (= n 0))
+            (setq v (* v n))
+            (setq n (- n 1)))
+          v))`;
+
+    const fact = evaluateText(src) as Function;
+    assert.strictEqual(fact(5), 120);
+    assert.strictEqual(fact(20), 2432902008176640000n);
+  });
+});
+
 function describeEvaluation(...args: [string, unknown][]) {
   for (const [expression, expected] of args) {
     it(`evaluates ${expression} to ${print(expected)}`, () => {
-      const environment = createEnvironment();
-      const scanner = createScanner(expression);
-      const datum = read(scanner);
-      const value = evaluate(datum, environment);
-      assert.strictEqual(value, expected);
+      let value;
+      let success = false;
+      try {
+        value = evaluateText(expression);
+        success = true;
+      } catch (e) {
+        if (expected === "#<error>") {
+          return;
+        }
+        throw e;
+      }
+      assert.strictEqual(success, true);
+      assertEql(value, expected);
     });
+  }
+}
+
+function evaluateText(expression: string, environment = createEnvironment()) {
+  const scanner = createScanner(expression);
+  const datum = read(scanner);
+  return evaluate(datum, environment);
+}
+
+function assertEql(value: unknown, expected: unknown) {
+  if (!eql(value, expected)) {
+    throw new AssertionError(`Expected ${print(value)} to be ${print(expected)}.`);
   }
 }

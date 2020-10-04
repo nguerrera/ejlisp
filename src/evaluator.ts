@@ -126,12 +126,19 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
   function compileLiteral(literal: Literal): es.Expression {
     const value = literal.value;
 
-    if (value === nil) {
-      return nilLiteral;
-    }
-
-    if (value === null) {
-      return nullLiteral;
+    switch (value) {
+      case nil:
+        return nilLiteral;
+      case null:
+        return nullLiteral;
+      case Infinity:
+        return infinityLiteral;
+      case -Infinity:
+        return negativeInfinityLiteral;
+      default:
+        if (Number.isNaN(value)) {
+          return nanLiteral;
+        }
     }
 
     switch (typeof value) {
@@ -199,11 +206,24 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
 
 const nullLiteral = getLiteral(null);
 const nilLiteral = getIdentifier("undefined");
+const infinityLiteral = getIdentifier("Infinity");
+const nanLiteral = getIdentifier("NaN");
 const environmentId = getIdentifier("$E");
 const literalsId = getIdentifier("$L");
 const variableGetterId = getIdentifier("$G");
 const testerId = getIdentifier("$T");
-const returnNil: es.ReturnStatement = { type: "ReturnStatement", argument: nilLiteral };
+
+const negativeInfinityLiteral: es.UnaryExpression = {
+  type: "UnaryExpression",
+  argument: infinityLiteral,
+  operator: "-",
+  prefix: true,
+};
+
+const returnNil: es.ReturnStatement = {
+  type: "ReturnStatement",
+  argument: nilLiteral,
+};
 
 /**
  * Map symbols to unique strings that are safe JavaScript identifiers. This
@@ -242,6 +262,7 @@ const environmentPrototype = (function () {
     floatp: primitives.floatp,
     numberp: primitives.numberp,
     eq: primitives.eq,
+    eql: primitives.eql,
     listp: primitives.listp,
     not: primitives.not,
     null: primitives.nilp,

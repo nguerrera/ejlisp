@@ -334,11 +334,27 @@ export function divide(x: Num, y: Num): Num {
 export function numericEqual(x: Num, y: Num): Bool {
   isNumber(x) || numberError(x);
   isNumber(y) || numberError(y);
-  return x == y || nil;
+  return x.valueOf() == y.valueOf() || nil;
 }
 
 export function eq(x: unknown, y: unknown): Bool {
   return x === y || nil;
+}
+
+export function eql(x: unknown, y: unknown): Bool {
+  if (x === y) {
+    return true;
+  }
+
+  if (Number.isNaN(x)) {
+    return Number.isNaN(y) || nil;
+  }
+
+  if (isNumber(x) && isNumber(y)) {
+    return numericEqual(x, y);
+  }
+
+  return nil;
 }
 
 export function not(x: unknown): Bool {
@@ -439,6 +455,18 @@ export function print(value: unknown): string {
   }
 
   if (isNumber(value)) {
+    if (Number.isNaN(value)) {
+      return "0.0e+NaN";
+    }
+
+    if (value === Number.POSITIVE_INFINITY) {
+      return "1.0e+INF";
+    }
+
+    if (value === Number.NEGATIVE_INFINITY) {
+      return "-1.0e+INF";
+    }
+
     if (isFloat(value) && Number.isInteger(+value)) {
       return value.toString() + ".0";
     } else {
