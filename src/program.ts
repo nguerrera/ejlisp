@@ -1,3 +1,3 @@
-import { repl } from "./repl";
+import { readEvalPrintLoop } from "./repl";
 
-repl();
+readEvalPrintLoop();

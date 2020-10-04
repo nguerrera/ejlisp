@@ -83,7 +83,11 @@ describe("symbol and number reading", () => {
     ["'-", intern("-")],
     ["+1", 1],
     ["-1", -1],
-    ["'a\\(b", intern("a(b")]
+    ["'a\\(b", intern("a(b")],
+    ["'😎", intern("😎")],
+    ["'💩", intern("💩")],
+    // Test symbol normalization
+    ["'\u0065\u0301", intern("\u00E9")]
   );
 });
 

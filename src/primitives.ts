@@ -407,6 +407,8 @@ export function intern(name: string): Sym {
     return t;
   }
 
+  name = name.normalize("NFC");
+
   let sym = internedSymbols.get(name);
   if (sym === undefined) {
     sym = Symbol(name);

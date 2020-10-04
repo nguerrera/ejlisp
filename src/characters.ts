@@ -5,6 +5,8 @@
 export const enum CharCode {
   Tab = 9,
   LineFeed = 10,
+  VerticalTab = 11,
+  FormFeed = 12, 
   CarriageReturn = 13,
   Space = 32,
   Bang = 33,
@@ -38,6 +40,12 @@ export const enum CharCode {
   CloseBrace = 125,
   Tilde = 126,
 
+  NextLine = 0x0085,
+  LeftToRightMark = 0x200E,
+  RightToLeftMark = 0x200F,
+  LineSeparator = 0x2028,
+  ParagraphSeparator = 0x2029,
+
   A = 65, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
   a = 97, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p, q, r, s, t, u, v, w, x, y, z,
   _0 = 48, _1, _2, _3, _4, _5, _6, _7, _8, _9,
@@ -69,12 +77,29 @@ export function isSymbolChar(ch: number) {
   );
 }
 
+/**
+ * Determines if the given UTF-16 code unit represents whitespace.
+ *
+ * Whitespace is defined by the full, immutable set of code points
+ * with Pattern_White_Space property.
+ *
+ * References:
+ *  https://www.unicode.org/Public/UCD/latest/ucd/PropList.txt
+ *  https://www.unicode.org/reports/tr31/#Stability
+ */
 export function isWhitespace(ch: number) {
   return (
     ch === CharCode.Space ||
     ch === CharCode.Tab ||
     ch === CharCode.CarriageReturn ||
-    ch === CharCode.LineFeed
+    ch === CharCode.LineFeed ||
+    ch === CharCode.FormFeed ||
+    ch === CharCode.VerticalTab ||
+    ch === CharCode.NextLine ||
+    ch === CharCode.LeftToRightMark ||
+    ch === CharCode.RightToLeftMark ||
+    ch === CharCode.LineSeparator ||
+    ch === CharCode.ParagraphSeparator
   );
 }
 

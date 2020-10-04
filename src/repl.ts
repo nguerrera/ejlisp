@@ -1,47 +1,74 @@
 import { compileFormToString, createEnvironment, evaluate } from "./evaluator";
-import { createScanner, read } from "./reader";
+import { createScanner, EofError, read, Scanner } from "./reader";
 import { intern, print } from "./primitives";
-import { question } from "readline-sync";
+import { stdin, stdout } from "process";
+import { createInterface } from "readline";
+import { promisify } from "util";
 
-export function repl() {
+export async function readEvalPrintLoop() {
   let done = false;
+  const question = promisifyReadlineQuestion();
   const environment = createEnvironment();
+
   environment.exit = function exit() {
     done = true;
     return intern("Bye.");
   };
-  // debugging aids
+
   environment["to-string"] = function toString(x: any) {
     return x.toString();
   };
+
   environment["to-json"] = function toJson(x: any) {
     return JSON.stringify(x, undefined, 2);
   };
+
   environment.compile = function compile(form: unknown) {
     return compileFormToString(form);
   };
 
   while (!done) {
-    try {
-      let line = readline("> ");
+    let input = await question("> ");
+    while (true) {
+      try {
+        readEvalPrint(input);
+        break;
+      } catch (e) {
+        if (e instanceof EofError) {
+          input += "\n";
+          input += await question("... ");
+          continue;
+        }
+        console.log(e);
+        break;
+      }
+    }
+  }
 
-      const scanner = createScanner(line, () => {
-        line = readline("... ");
-        scanner.appendInput("\n");
-        scanner.appendInput(line);
-      });
+  function readEvalPrint(input: string) {
+    const scanner = createScanner(input);
 
-      do {
-        const datum = read(scanner);
-        const value = evaluate(datum, environment);
-        console.log(print(value));
-      } while (!done && scanner.position !== scanner.input.length);
-    } catch (e) {
-      console.log(e);
+    // Read all data from input before evaluating anything. If we hit EOF, we
+    // don't want to cause side effects evaluating unfinished input.
+    let datums = [];
+    while (scanner.position !== scanner.input.length) {
+      const datum = read(scanner);
+      datums.push(datum);
+    }
+
+    for (const datum of datums) {
+      const value = evaluate(datum, environment);
+      const printed = print(value);
+      console.log(printed);
+      if (done) {
+        return;
+      }
     }
   }
 }
 
-function readline(query: string) {
-  return question(query, { keepWhitespace: true });
+function promisifyReadlineQuestion() {
+  const readline: any = createInterface(stdin, stdout);
+  readline.question[promisify.custom] = (q: string) => new Promise(r => readline.question(q, r));
+  return promisify<string, string>(readline.question);
 }

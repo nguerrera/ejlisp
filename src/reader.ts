@@ -18,11 +18,10 @@ export interface Scanner {
   readonly input: string;
   readonly position: number;
   readonly token: Token;
-  readonly tokenPosition: number;
+  readonly tokenStart: number;
   readonly tokenEnd: number;
   scan(): Token;
   getTokenText(): string;
-  appendInput(input: string): void;
 }
 
 /** A value that can be expressed with S-Expression syntax. */
@@ -58,6 +57,12 @@ export type NumberToken =
 
 /** A token that represents a symbol */
 export type SymbolToken = Token.Symbol | Token.EscapedSymbol;
+
+export class EofError extends Error {
+  constructor() {
+    super("Unexpected end of file.");
+  }
+}
 
 export function read(scanner: Scanner): Datum {
   let currentToken = Token.None;
@@ -95,7 +100,7 @@ export function read(scanner: Scanner): Datum {
       case Token.Quote:
         return readQuote();
       case Token.Eof:
-        throw error("Unexpected end of file.");
+        throw new EofError();
       default:
         throw error(`Unexpected token: ${Token[token()]}: '${scanner.getTokenText()}'.`);
     }
@@ -138,6 +143,7 @@ export function read(scanner: Scanner): Datum {
   function readPoundSymbol() {
     consume(Token.PoundSymbol);
     const text = scanner.getTokenText();
+
     switch (text) {
       case "#undefined":
         return undefined;
@@ -154,7 +160,6 @@ export function read(scanner: Scanner): Datum {
 
   function readEscapedSymbol(): Sym {
     consume(Token.EscapedSymbol);
-
     let input = scanner.getTokenText();
     let start = 0;
     let pos = 0;
@@ -225,39 +230,35 @@ export function read(scanner: Scanner): Datum {
   }
 }
 
-export function createScanner(input: string, eofHandler = () => {}): Scanner {
+export function createScanner(input: string): Scanner {
   let position = 0;
-  let tokenPosition = 0;
+  let tokenStart = 0;
   let tokenEnd = 0;
   let token = Token.None;
+
+  skipTrivia();
 
   //prettier-ignore
   return {
     get position() { return position; },
     get token() {  return token; },
-    get tokenPosition() { return tokenPosition; },
+    get tokenStart() { return tokenStart; },
     get tokenEnd() { return tokenEnd; },
     get input() { return input; },
     scan,
     getTokenText,
-    appendInput,
   }
 
   function scan(): Token {
-    skipLeadingTrivia();
-    tokenPosition = position;
+    tokenStart = position;
     token = scanToken();
     tokenEnd = position;
-    skipTrailingTrivia();
+    skipTrivia();
     return token;
   }
 
   function getTokenText() {
-    return input.substring(tokenPosition, tokenEnd);
-  }
-
-  function appendInput(moreInput: string) {
-    input += moreInput;
+    return input.substring(tokenStart, tokenEnd);
   }
 
   function scanToken(): Token {
@@ -436,8 +437,8 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
 
     do {
       position++;
-      if (eof()) {
-        throw error("Unexpected end of input in string literal.");
+      if (position === input.length) {
+        throw new EofError();
       }
       ch = input.charCodeAt(position);
     } while (ch !== CharCode.DoubleQuote);
@@ -446,16 +447,8 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
     return Token.String;
   }
 
-  function skipLeadingTrivia() {
-    skipTrivia(true);
-  }
-
-  function skipTrailingTrivia() {
-    skipTrivia(false);
-  }
-
-  function skipTrivia(useHandler: boolean) {
-    while (!eof(useHandler)) {
+  function skipTrivia() {
+    while (position < input.length) {
       const ch = input.charCodeAt(position);
       if (ch === CharCode.Semicolon) {
         skipComment();
@@ -473,13 +466,6 @@ export function createScanner(input: string, eofHandler = () => {}): Scanner {
       position++;
       ch = input.charCodeAt(position);
     } while (position < input.length && ch !== CharCode.CarriageReturn && ch !== CharCode.LineFeed);
-  }
-
-  function eof(useHandler = true) {
-    if (useHandler && position === input.length) {
-      eofHandler();
-    }
-    return position === input.length;
   }
 
   function advance() {
