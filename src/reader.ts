@@ -45,6 +45,23 @@ export enum Token {
   NaN,
   PositiveInfinity,
   NegativeInfinity,
+  Quasiquote,
+  Unquote,
+  UnquoteSplicing,
+}
+
+export namespace KnownSymbol {
+  export const Quote = intern("quote");
+  export const Quasiquote = intern("quasiquote");
+  export const Unquote = intern("unquote");
+  export const UnquoteSplicing = intern("unquote-splicing");
+  export const Setq = intern("setq");
+  export const If = intern("if");
+  export const While = intern("while");
+  export const Lambda = intern("lambda");
+  export const Progn = intern("progn");
+  export const Defun = intern("defun");
+  export const Let = intern("let");
 }
 
 /** A token that represents a number. */
@@ -77,28 +94,34 @@ export function read(scanner: Scanner): Datum {
       case Token.Float:
         return readFloat();
       case Token.NaN:
-        consume(Token.NaN);
+        expect(Token.NaN);
         return Number.NaN;
       case Token.PositiveInfinity:
-        consume(Token.PositiveInfinity);
+        expect(Token.PositiveInfinity);
         return Number.POSITIVE_INFINITY;
       case Token.NegativeInfinity:
-        consume(Token.NegativeInfinity);
+        expect(Token.NegativeInfinity);
         return Number.NEGATIVE_INFINITY;
       case Token.EscapedSymbol:
         return readEscapedSymbol();
       case Token.Symbol:
         return readSymbol();
       case Token.OpenParenthesis:
-        consume(Token.OpenParenthesis);
+        expect(Token.OpenParenthesis);
         return readList();
       case Token.OpenSquareBracket:
-        consume(Token.OpenSquareBracket);
+        expect(Token.OpenSquareBracket);
         return readVector();
       case Token.PoundSymbol:
         return readPoundSymbol();
       case Token.Quote:
-        return readQuote();
+        return readAbbreviation(KnownSymbol.Quote);
+      case Token.Quasiquote:
+        return readAbbreviation(KnownSymbol.Quasiquote);
+      case Token.Unquote:
+        return readAbbreviation(KnownSymbol.Unquote);
+      case Token.UnquoteSplicing:
+        return readAbbreviation(KnownSymbol.UnquoteSplicing);
       case Token.Eof:
         throw new EofError();
       default:
@@ -106,19 +129,19 @@ export function read(scanner: Scanner): Datum {
     }
   }
 
-  function readQuote(): List {
-    consume(Token.Quote);
-    return list(intern("quote"), readDatum());
+  function readAbbreviation(symbol: Sym): List {
+    expectAny();
+    return list(symbol, readDatum());
   }
 
   function readString() {
     const str = scanner.getTokenText().slice(1, -1);
-    consume(Token.String);
+    expect(Token.String);
     return str;
   }
 
   function readInteger() {
-    consume(Token.Integer);
+    expect(Token.Integer);
     let text = scanner.getTokenText();
 
     if (text.length < 10) {
@@ -134,14 +157,14 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readFloat() {
-    consume(Token.Float);
+    expect(Token.Float);
     const text = scanner.getTokenText();
     const num = Float(Number(text));
     return num;
   }
 
   function readPoundSymbol() {
-    consume(Token.PoundSymbol);
+    expect(Token.PoundSymbol);
     const text = scanner.getTokenText();
 
     switch (text) {
@@ -159,7 +182,7 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readEscapedSymbol(): Sym {
-    consume(Token.EscapedSymbol);
+    expect(Token.EscapedSymbol);
     let input = scanner.getTokenText();
     let start = 0;
     let pos = 0;
@@ -177,7 +200,7 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readSymbol(): Sym {
-    consume(Token.Symbol);
+    expect(Token.Symbol);
     return intern(scanner.getTokenText());
   }
 
@@ -199,7 +222,7 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readDottedCdr() {
-    consume(Token.Dot);
+    expect(Token.Dot);
     const cdr = readDatum();
     expect(Token.CloseParenthesis);
     return cdr;
@@ -223,10 +246,8 @@ export function read(scanner: Scanner): Datum {
     }
   }
 
-  function consume(expected: Token) {
-    if (!tryConsume(expected)) {
-      throw error(`Internal error: expected  ${Token[expected]}, found ${Token[token()]}.`);
-    }
+  function expectAny() {
+    currentToken = Token.None;
   }
 }
 
@@ -283,6 +304,11 @@ export function createScanner(input: string): Scanner {
       case CharCode.CloseSquareBracket:
         position++;
         return Token.CloseSquareBracket;
+      case CharCode.Backtick:
+        position++;
+        return Token.Quasiquote;
+      case CharCode.Comma:
+        return scanComma();
       case CharCode.Dot:
         return scanDot();
       case CharCode.Pound:
@@ -309,12 +335,22 @@ export function createScanner(input: string): Scanner {
     return Token.PoundSymbol;
   }
 
+  function scanComma() {
+    if (match2(CharCode.Comma, CharCode.At)) {
+      return Token.UnquoteSplicing;
+    } else {
+      position++;
+      return Token.Unquote;
+    }
+  }
+
   function scanDot(): Token.Dot | NumberToken | SymbolToken {
     if (isDelimiter(input.charCodeAt(position + 1))) {
       position++;
       return Token.Dot;
+    } else {
+      return scanNumberOrSymbol();
     }
-    return scanNumberOrSymbol();
   }
 
   // Annoyingly, from an implementor's perspective at least, Lisp's lexical
@@ -483,6 +519,15 @@ export function createScanner(input: string): Scanner {
     }
 
     position++;
+    return true;
+  }
+
+  function match2(ch1: number, ch2: number) {
+    if (input.charCodeAt(position) !== ch1 || input.charCodeAt(position + 1) !== ch2) {
+      return false;
+    }
+
+    position += 2;
     return true;
   }
 

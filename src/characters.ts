@@ -36,6 +36,7 @@ export const enum CharCode {
   CloseSquareBracket = 93,
   Circumflex = 94,
   Underscore = 95,
+  Backtick = 96,
   OpenBrace = 123,
   CloseBrace = 125,
   Tilde = 126,

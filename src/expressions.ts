@@ -11,6 +11,7 @@ import {
   symbolName,
   t,
 } from "./primitives";
+import { KnownSymbol } from "./reader";
 
 export type Expression =
   | Literal
@@ -113,24 +114,24 @@ export function parse(form: unknown): Expression {
   function parseConsForm(list: Cons) {
     const [sym, rest] = expectList(list, _);
     if (isSymbol(sym)) {
-      switch (symbolName(sym)) {
+      switch (sym) {
         // special forms
-        case "quote":
+        case KnownSymbol.Quote:
           return parseQuote(rest);
-        case "setq":
+        case KnownSymbol.Setq:
           return parseSetq(rest);
-        case "if":
+        case KnownSymbol.If:
           return parseIf(rest);
-        case "while":
+        case KnownSymbol.While:
           return parseWhile(rest);
-        case "lambda":
+        case KnownSymbol.Lambda:
           return parseLambda(rest);
-        case "progn":
+        case KnownSymbol.Progn:
           return parseProgn(rest);
         // "macros" currently implemented with hard-coded expansion in parser
-        case "defun":
+        case KnownSymbol.Defun:
           return parseDefun(rest);
-        case "let":
+        case KnownSymbol.Let:
           return parseLet(rest);
       }
     }
