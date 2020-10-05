@@ -1,5 +1,5 @@
 import { compileFormToString, createEnvironment, evaluate } from "./evaluator";
-import { createScanner, EofError, read } from "./reader";
+import { EofError, createScanner, read } from "./reader";
 import { intern, print } from "./primitives";
 import { stdin, stdout } from "process";
 import * as readline from "readline";
