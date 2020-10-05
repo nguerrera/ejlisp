@@ -1,13 +1,12 @@
 import { compileFormToString, createEnvironment, evaluate } from "./evaluator";
-import { createScanner, EofError, read, Scanner } from "./reader";
+import { createScanner, EofError, read } from "./reader";
 import { intern, print } from "./primitives";
 import { stdin, stdout } from "process";
-import { createInterface } from "readline";
-import { promisify } from "util";
+import * as readline from "readline";
 
 export async function readEvalPrintLoop() {
   let done = false;
-  const question = promisifyReadlineQuestion();
+  const rl = readline.createInterface(stdin, stdout);
   const environment = createEnvironment();
 
   environment.exit = function exit() {
@@ -65,10 +64,8 @@ export async function readEvalPrintLoop() {
       }
     }
   }
-}
 
-function promisifyReadlineQuestion() {
-  const readline: any = createInterface(stdin, stdout);
-  readline.question[promisify.custom] = (q: string) => new Promise(r => readline.question(q, r));
-  return promisify<string, string>(readline.question);
+  function question(query: string): Promise<string> {
+    return new Promise(r => rl.question(query, r));
+  }
 }
