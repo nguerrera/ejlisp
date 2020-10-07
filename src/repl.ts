@@ -44,18 +44,20 @@ export async function readEvalPrintLoop() {
     }
   }
 
+  rl.close();
+
   function readEvalPrint(input: string) {
     const scanner = createScanner(input);
 
     // Read all data from input before evaluating anything. If we hit EOF, we
     // don't want to cause side effects evaluating unfinished input.
-    let datums = [];
+    let data = [];
     while (scanner.position !== scanner.input.length) {
       const datum = read(scanner);
-      datums.push(datum);
+      data.push(datum);
     }
 
-    for (const datum of datums) {
+    for (const datum of data) {
       const value = evaluate(datum, environment);
       const printed = print(value);
       console.log(printed);

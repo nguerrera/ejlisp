@@ -10,6 +10,7 @@ import {
   nil,
   symbolName,
   t,
+  iterate,
 } from "./primitives";
 import { KnownSymbol } from "./reader";
 
@@ -350,13 +351,6 @@ function expect<T>(datum: unknown, typep: TypePredicate<T>) {
   }
 
   return datum;
-}
-
-function* iterate(list: List) {
-  while (list !== nil) {
-    yield list.car;
-    list = expect(list.cdr, isList);
-  }
 }
 
 function _(_value: unknown): _value is unknown {

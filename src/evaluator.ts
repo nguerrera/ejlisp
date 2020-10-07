@@ -250,6 +250,8 @@ const environmentPrototype = (function () {
 
   const env = {
     ...constants,
+    append: primitives.append,
+    apply: primitives.apply,
     bignump: primitives.bignump,
     booleanp: primitives.booleanp,
     car: primitives.car,
@@ -275,12 +277,14 @@ const environmentPrototype = (function () {
     stringp: primitives.stringp,
     symbolp: primitives.symbolp,
     truncate: primitives.truncate,
+    vector: primitives.vector,
     vectorp: primitives.vectorp,
     "+": primitives.add,
     "-": primitives.subtract,
     "/": primitives.divide,
     "*": primitives.multiply,
     "=": primitives.numericEqual,
+    "list*": primitives.listStar,
     "make-symbol": primitives.makeSymbol,
     "symbol-name": primitives.symbolName,
   };

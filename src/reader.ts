@@ -32,11 +32,11 @@ export enum Token {
   Eof,
   OpenParenthesis,
   CloseParenthesis,
-  OpenSquareBracket,
-  CloseSquareBracket,
+  OpenBracket,
+  CloseBracket,
   Dot,
   Quote,
-  PoundSymbol,
+  SharpSymbol,
   Symbol,
   EscapedSymbol,
   String,
@@ -87,33 +87,31 @@ export function read(scanner: Scanner): Datum {
 
   function readDatum() {
     switch (token()) {
+      case Token.NaN:
+        consume();
+        return Number.NaN;
+      case Token.PositiveInfinity:
+        consume();
+        return Number.POSITIVE_INFINITY;
+      case Token.NegativeInfinity:
+        consume();
+        return Number.NEGATIVE_INFINITY;
       case Token.String:
         return readString();
       case Token.Integer:
         return readInteger();
       case Token.Float:
         return readFloat();
-      case Token.NaN:
-        expect(Token.NaN);
-        return Number.NaN;
-      case Token.PositiveInfinity:
-        expect(Token.PositiveInfinity);
-        return Number.POSITIVE_INFINITY;
-      case Token.NegativeInfinity:
-        expect(Token.NegativeInfinity);
-        return Number.NEGATIVE_INFINITY;
       case Token.EscapedSymbol:
         return readEscapedSymbol();
       case Token.Symbol:
         return readSymbol();
       case Token.OpenParenthesis:
-        expect(Token.OpenParenthesis);
         return readList();
-      case Token.OpenSquareBracket:
-        expect(Token.OpenSquareBracket);
+      case Token.OpenBracket:
         return readVector();
-      case Token.PoundSymbol:
-        return readPoundSymbol();
+      case Token.SharpSymbol:
+        return readSharpSymbol();
       case Token.Quote:
         return readAbbreviation(KnownSymbol.Quote);
       case Token.Quasiquote:
@@ -130,18 +128,18 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readAbbreviation(symbol: Sym): List {
-    expectAny();
+    consume();
     return list(symbol, readDatum());
   }
 
   function readString() {
+    consume();
     const str = scanner.getTokenText().slice(1, -1);
-    expect(Token.String);
     return str;
   }
 
   function readInteger() {
-    expect(Token.Integer);
+    consume();
     let text = scanner.getTokenText();
 
     if (text.length < 10) {
@@ -157,14 +155,14 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readFloat() {
-    expect(Token.Float);
+    consume();
     const text = scanner.getTokenText();
     const num = Float(Number(text));
     return num;
   }
 
-  function readPoundSymbol() {
-    expect(Token.PoundSymbol);
+  function readSharpSymbol() {
+    consume();
     const text = scanner.getTokenText();
 
     switch (text) {
@@ -182,7 +180,7 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readEscapedSymbol(): Sym {
-    expect(Token.EscapedSymbol);
+    consume();
     let input = scanner.getTokenText();
     let start = 0;
     let pos = 0;
@@ -200,43 +198,56 @@ export function read(scanner: Scanner): Datum {
   }
 
   function readSymbol(): Sym {
-    expect(Token.Symbol);
+    consume();
     return intern(scanner.getTokenText());
   }
 
-  function readList(): List {
-    if (tryConsume(Token.CloseParenthesis)) {
-      return nil;
-    }
-    const car = readDatum();
-    const cdr = token() === Token.Dot ? readDottedCdr() : readList();
-    return Object.freeze(cons(car, cdr));
-  }
-
   function readVector() {
+    consume();
     const vector: Vector = [];
-    while (!tryConsume(Token.CloseSquareBracket)) {
+    while (!tryConsume(Token.CloseBracket)) {
       vector.push(readDatum());
     }
     return Object.freeze(vector) as Vector;
   }
 
+  function readList(): List {
+    consume();
+    return readRest();
+  }
+
+  function readRest(): List {
+    if (tryConsume(Token.CloseParenthesis)) {
+      return nil;
+    }
+    const car = readDatum();
+    const cdr = token() === Token.Dot ? readDottedCdr() : readRest();
+    return Object.freeze(cons(car, cdr));
+  }
+
   function readDottedCdr() {
-    expect(Token.Dot);
+    consume();
     const cdr = readDatum();
     expect(Token.CloseParenthesis);
     return cdr;
   }
 
   function token() {
-    return currentToken === Token.None ? (currentToken = scanner.scan()) : currentToken;
+    if (currentToken === Token.None) {
+      currentToken = scanner.scan();
+    }
+    return currentToken;
+  }
+
+  function consume() {
+    currentToken = Token.None;
   }
 
   function tryConsume(expected: Token) {
     if (token() !== expected) {
       return false;
     }
-    currentToken = Token.None;
+    consume();
     return true;
   }
 
@@ -244,10 +255,6 @@ export function read(scanner: Scanner): Datum {
     if (!tryConsume(expected)) {
       throw error(`Expected ${Token[expected]}, found ${Token[token()]}.`);
     }
-  }
-
-  function expectAny() {
-    currentToken = Token.None;
   }
 }
 
@@ -298,21 +305,21 @@ export function createScanner(input: string): Scanner {
       case CharCode.Quote:
         position++;
         return Token.Quote;
-      case CharCode.OpenSquareBracket:
+      case CharCode.OpenBracket:
         position++;
-        return Token.OpenSquareBracket;
-      case CharCode.CloseSquareBracket:
+        return Token.OpenBracket;
+      case CharCode.CloseBracket:
         position++;
-        return Token.CloseSquareBracket;
-      case CharCode.Backtick:
+        return Token.CloseBracket;
+      case CharCode.BackQuote:
         position++;
         return Token.Quasiquote;
       case CharCode.Comma:
         return scanComma();
       case CharCode.Dot:
         return scanDot();
-      case CharCode.Pound:
-        return scanPound();
+      case CharCode.Sharp:
+        return scanSharp();
       case CharCode.DoubleQuote:
         return scanString();
       case CharCode.Plus:
@@ -329,19 +336,15 @@ export function createScanner(input: string): Scanner {
     }
   }
 
-  function scanPound() {
+  function scanSharp() {
     position++;
     scanSymbol();
-    return Token.PoundSymbol;
+    return Token.SharpSymbol;
   }
 
   function scanComma() {
-    if (match2(CharCode.Comma, CharCode.At)) {
-      return Token.UnquoteSplicing;
-    } else {
-      position++;
-      return Token.Unquote;
-    }
+    position++;
+    return match(CharCode.At) ? Token.UnquoteSplicing : Token.Unquote;
   }
 
   function scanDot(): Token.Dot | NumberToken | SymbolToken {
@@ -384,12 +387,10 @@ export function createScanner(input: string): Scanner {
     }
 
     // **Whole part of significand**
-    if (isDigit(input.charCodeAt(position))) {
-      do {
-        if (!advance()) {
-          return Token.Integer;
-        }
-      } while (isDigit(input.charCodeAt(position)));
+    while (isDigit(input.charCodeAt(position))) {
+      if (!advance()) {
+        return Token.Integer;
+      }
     }
 
     // **Fractional part of significand**
@@ -436,7 +437,7 @@ export function createScanner(input: string): Scanner {
 
       do {
         if (!advance()) {
-          return numberToken;
+          return Token.Float;
         }
       } while (isDigit(input.charCodeAt(position)));
     }
@@ -519,15 +520,6 @@ export function createScanner(input: string): Scanner {
     }
 
     position++;
-    return true;
-  }
-
-  function match2(ch1: number, ch2: number) {
-    if (input.charCodeAt(position) !== ch1 || input.charCodeAt(position + 1) !== ch2) {
-      return false;
-    }
-
-    position += 2;
     return true;
   }
 

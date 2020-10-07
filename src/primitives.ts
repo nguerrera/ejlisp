@@ -287,6 +287,59 @@ export function list(...values: unknown[]): List {
   return result;
 }
 
+export function listStar(...values: unknown[]): unknown {
+  if (values.length === 0) {
+    return nil;
+  }
+
+  let result = values[values.length - 1];
+  for (let i = values.length - 2; i >= 0; i--) {
+    result = cons(values[i], result);
+  }
+
+  return result;
+}
+
+export function vector(...values: unknown[]): Vector {
+  return values;
+}
+
+export function apply(func: Function, args: List) {
+  return func.apply(undefined, Array.from(iterate(args)));
+}
+
+export function append(...lists: List[]): unknown {
+  if (lists.length === 0) {
+    return nil;
+  }
+
+  let result = lists[lists.length - 1];
+  isList(result) || listError(result);
+
+  for (let i = lists.length - 2; i >= 0; i--) {
+    let array = Array.from(iterate(lists[i]));
+    for (let j = array.length - 1; j >= 0; j--) {
+      result = cons(array[j], result);
+    }
+  }
+
+  return result;
+}
+
+export function* iterate(list: List) {
+  isList(list) || listError(list);
+
+  while (list !== nil) {
+    yield list.car;
+
+    if (!isList(list.cdr)) {
+      listError(list.cdr);
+    }
+
+    list = list.cdr;
+  }
+}
+
 /**
  * Converts a JavaScript number to a lisp integer.
  *
@@ -626,7 +679,7 @@ function notAConstructorError(target: Function): never {
 }
 
 function typeError(expected: string, value: unknown): never {
-  throw new TypeError(`Incorrect argument type: ${expected}, ${value}`);
+  throw new TypeError(`Incorrect argument type: ${expected}, ${print(value)}`);
 }
 
 function numberError(value: unknown): never {
