@@ -11,6 +11,11 @@ import {
   symbolName,
   t,
   iterate,
+  list,
+  isVector,
+  print,
+  append,
+  cons,
 } from "./primitives";
 import { KnownSymbol } from "./reader";
 
@@ -25,7 +30,7 @@ export type Expression =
   | FunctionCall;
 
 export enum ExpressionKind {
-  Literal = "Literal",
+  Literal = "Quote",
   GetVariable = "GetVariable",
   SetVariable = "SetVariable",
   Progn = "Progn",
@@ -134,6 +139,8 @@ export function parse(form: unknown): Expression {
           return parseDefun(rest);
         case KnownSymbol.Let:
           return parseLet(rest);
+        case KnownSymbol.Quasiquote:
+          return parseQuasiquote(rest);
       }
     }
 
@@ -155,6 +162,12 @@ export function parse(form: unknown): Expression {
   function parseQuote(rest: List) {
     const [value] = expectTuple(rest, _);
     return parseLiteral(value);
+  }
+
+  function parseQuasiquote(rest: List): Expression {
+    const [form] = expectTuple(rest, _);
+    const expansion = expandQuasiquote(form);
+    return parseForm(expansion);
   }
 
   function parseSetq(rest: List): SetVariable {
@@ -362,4 +375,173 @@ function isVariableSymbol(value: unknown): value is symbol {
     error(`${value === t ? "t" : "nil"} cannot be used as a variable.`);
   }
   return typeof value === "symbol";
+}
+
+/**
+ * Expands `form, (read as (quasiquote form)) to equivalent code.
+ *
+ * This implementation attempts to follow the formal rules as directly as
+ * possible. Modest simplification is performed on the fly to make the expansion
+ * somewhat readable, but it's still sub-optimal at this point.
+ *
+ * Note that seemingly obvious simplifications can fail notoriously easily in
+ * the presence of nested splicing. Significant testing will be needed before
+ * any further simplification is attempted.
+ *
+ * References:
+ * 1. Common Lisp HyperSpec: 2.4.6 Backquote
+ *    https://www.lispworks.com/documentation/HyperSpec/Body/02_df.htm
+ *
+ * 2. Common Lisp the Language, 2nd Edition, Guy L. Steele Jr.
+ *    https://www.cs.cmu.edu/Groups/AI/html/cltl/clm/node190.html#BACKQUOTE
+ *    https://www.cs.cmu.edu/Groups/AI/html/cltl/clm/node367.html#SECTION003600000000000000000
+ *
+ * 3. Quasiquotation in Lisp, Alan Bawden
+ *    https://www.brics.dk/NS/99/1/BRICS-NS-99-1.pdf
+ */
+export function expandQuasiquote(form: unknown): unknown {
+  if (isCons(form)) {
+    if (isQuasiquote(form)) {
+      const inner = expandQuasiquote(argumentOf(form));
+      return expandQuasiquote(inner);
+    } else if (isUnquote(form)) {
+      return argumentOf(form);
+    } else if (isUnquoteSplicing(form)) {
+      throw error(",@ outside list.");
+    } else {
+      return expandQuasiquotedList(form);
+    }
+  } else if (isVector(form)) {
+    const asList = list.apply(undefined, form);
+    const expandedList = expandQuasiquote(asList);
+    return list(KnownSymbol.Apply, KnownSymbol.Vector, expandedList);
+  } else {
+    return quote(form);
+  }
+
+  function expandQuasiquotedList(form: Cons) {
+    let expansion: unknown[] = [KnownSymbol.Append];
+    let listInProgress: unknown[] | undefined = undefined;
+
+    while (true) {
+      const first = form.car;
+      if (isCons(first)) {
+        if (isUnquote(first)) {
+          pushList(argumentOf(first));
+        } else if (isUnquoteSplicing(first)) {
+          push(argumentOf(first));
+        } else {
+          pushList(expandQuasiquote(first));
+        }
+      } else if (isUnquote(form)) {
+        push(argumentOf(form));
+        break;
+      } else if (isUnquoteSplicing(form)) {
+        throw error(",@ after .");
+      } else {
+        pushList(expandQuasiquote(first));
+      }
+
+      const rest = form.cdr;
+      if (rest === nil) {
+        break;
+      } else if (!isCons(rest)) {
+        push(quote(rest));
+        break;
+      }
+
+      form = rest;
+    }
+
+    return finishList();
+
+    /** Append form to the expansion in progress. */
+    function push(form: any) {
+      flushList();
+      expansion.push(form);
+    }
+
+    /**
+     * Logically append (list form) to the expansion in progress, but buffer it
+     * so that we can simplify (append (list x) (list y)) to (append (list x y))
+     * so long as neither x nor y are ,@ forms.
+     */
+    function pushList(form: any) {
+      if (isUnquoteSplicing(form)) {
+        push(list(KnownSymbol.List, form));
+      } else if (listInProgress !== undefined) {
+        listInProgress.push(form);
+      } else {
+        listInProgress = [KnownSymbol.List, form];
+      }
+    }
+
+    /** Flush buffered pushList calls to the expansion. */
+    function flushList() {
+      if (listInProgress !== undefined) {
+        expansion.push(list.apply(undefined, listInProgress));
+        listInProgress = undefined;
+      }
+    }
+
+    /**
+     * Flush buffered pushList calls to the expansion and make a final
+     * simplification of (append x) to x, provided x is not a ,@ form.
+     */
+    function finishList() {
+      flushList();
+
+      if (expansion.length === 2) {
+        const x = expansion[1];
+        if (!isCons(x) || !isUnquoteSplicing(x)) {
+          return x;
+        }
+      }
+
+      return list.apply(undefined, expansion);
+    }
+  }
+
+  /** Determine if form is `x (read as (quasiquote x)) */
+  function isQuasiquote(form: Cons) {
+    return isQuasiquotingForm(KnownSymbol.Quasiquote, form);
+  }
+
+  /** Determine if form is ,x (read as (unquote x)) */
+  function isUnquote(form: Cons) {
+    return isQuasiquotingForm(KnownSymbol.Unquote, form);
+  }
+
+  /** Determine if form is ,@x (read as (unquote-splicing x)) */
+  function isUnquoteSplicing(form: Cons) {
+    return isQuasiquotingForm(KnownSymbol.UnquoteSplicing, form);
+  }
+
+  function isQuasiquotingForm(sym: Sym, form: Cons) {
+    if (form.car !== sym) {
+      return false;
+    }
+
+    if (!isCons(form.cdr) || form.cdr.cdr !== nil) {
+      throw error(`Malformed ${print(sym)}.`);
+    }
+
+    return true;
+  }
+
+  /** Obtain x of (quasiquote x), (unquote x), or (unquote-splicing x). */
+  function argumentOf(quasiquotingForm: Cons) {
+    return (quasiquotingForm.cdr as Cons).car;
+  }
+
+  /**
+   * If atom is a non-self-evaluating symbol, return (quote atom). Otherwise
+   * return atom itself as a simplification..
+   */
+  function quote(atom: unknown) {
+    if (!isSymbol(atom) || isBool(atom)) {
+      return atom;
+    }
+    return list(KnownSymbol.Quote, atom);
+  }
 }

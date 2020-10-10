@@ -308,16 +308,19 @@ export function apply(func: Function, args: List) {
   return func.apply(undefined, Array.from(iterate(args)));
 }
 
-export function append(...lists: List[]): unknown {
-  if (lists.length === 0) {
+export function append(...args: unknown[]): unknown {
+  if (args.length === 0) {
     return nil;
   }
 
-  let result = lists[lists.length - 1];
-  isList(result) || listError(result);
+  let result = args[args.length - 1];
 
-  for (let i = lists.length - 2; i >= 0; i--) {
-    let array = Array.from(iterate(lists[i]));
+  for (let i = args.length - 2; i >= 0; i--) {
+    const list = args[i];
+    if (!isList(list)) {
+      listError(list);
+    }
+    let array = Array.from(iterate(list));
     for (let j = array.length - 1; j >= 0; j--) {
       result = cons(array[j], result);
     }
@@ -407,6 +410,30 @@ export function eql(x: unknown, y: unknown): Bool {
 
   if (isNumber(x) && isNumber(y)) {
     return numericEqual(x, y);
+  }
+
+  return nil;
+}
+
+export function equal(x: unknown, y: unknown): Bool {
+  if (eql(x, y)) {
+    return true;
+  }
+
+  if (isCons(x) && isCons(y)) {
+    return equal(x.car, y.car) && equal(x.cdr, y.cdr);
+  }
+
+  if (isVector(x) && isVector(y)) {
+    if (x.length !== y.length) {
+      return nil;
+    }
+
+    for (let i = 0; i < x.length; i++) {
+      if (!equal(x[i], y[i])) {
+        return nil;
+      }
+    }
   }
 
   return nil;

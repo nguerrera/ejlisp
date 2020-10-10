@@ -1,5 +1,5 @@
 import { generate } from "astring";
-import { Nominal, isInterned, print, symbolName, nil } from "./primitives";
+import { Nominal, isInterned, print, symbolName, nil, isCons, error } from "./primitives";
 import * as es from "estree";
 import * as primitives from "./primitives";
 
@@ -15,7 +15,9 @@ import {
   SetVariable,
   While,
   parse,
+  expandQuasiquote,
 } from "./expressions";
+import { KnownSymbol } from "./reader";
 
 export interface Environment extends Nominal<"environment"> {
   [key: string]: unknown;
@@ -287,6 +289,17 @@ const environmentPrototype = (function () {
     "list*": primitives.listStar,
     "make-symbol": primitives.makeSymbol,
     "symbol-name": primitives.symbolName,
+
+    // hack for now to debug quasiquote expansion
+    macroexpand: function (form: unknown) {
+      if (!isCons(form) || form.car !== KnownSymbol.Quasiquote) {
+        return form;
+      }
+      if (!isCons(form.cdr)) {
+        throw error("Invalid quasiquote");
+      }
+      return expandQuasiquote(form.cdr.car);
+    },
   };
 
   for (const key in constants) {

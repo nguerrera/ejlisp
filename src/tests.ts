@@ -1,6 +1,6 @@
 import { assert, AssertionError } from "chai";
 import { createEnvironment, evaluate } from "./evaluator";
-import { eql, intern, nil, print, t } from "./primitives";
+import { cons, equal, intern, list, listStar, nil, print, t } from "./primitives";
 import { createScanner, read } from "./reader";
 
 describe("arithmetic", () => {
@@ -119,6 +119,37 @@ describe("functions", () => {
   });
 });
 
+describe("quasiquoting", () => {
+  describeEvaluation(
+    ["`(1 2 3 ,(+ 2 2))", list(1, 2, 3, 4)],
+    ["`(1 2 3 ,(+ 2 2) ,@(list 5))", list(1, 2, 3, 4, 5)],
+    ["`(1 2 3 (4 5 ,@'(6 7)) ,8)", list(1, 2, 3, list(4, 5, 6, 7), 8)],
+    [
+      '`(A B C ,(intern "D") ,@(list \'E) . F)',
+      listStar.apply(undefined, ["A", "B", "C", "D", "E", "F"].map(intern)),
+    ],
+    ["`(1 ,@ 2)", cons(1, 2)]
+  );
+
+  it("handles nested quasiquotes", () => {
+    // Adapted from examples in appendix C of CLTL 2nd edition.
+    // It's remarkably easy to break these.
+    const env = createEnvironment();
+    evaluateText(
+      `(progn
+        (setq q '(r s)) 
+        (defun r (x) (apply * x)) 
+        (setq s '(4 6)))`,
+      env
+    );
+    assertLispEqual(doubleEvaluateText("``(,,q))", env), list(24));
+    assertLispEqual(doubleEvaluateText("``(,@,q))", env), 24);
+    evaluateText("(setq r '(3 5))", env);
+    assertLispEqual(doubleEvaluateText("``(,,@q)", env), list(list(3, 5), list(4, 6)));
+    assertLispEqual(doubleEvaluateText("``(,@,@q)", env), list(3, 5, 4, 6));
+  });
+});
+
 function describeEvaluation(...args: [string, unknown][]) {
   for (const [expression, expected] of args) {
     it(`evaluates ${expression} to ${print(expected)}`, () => {
@@ -134,7 +165,7 @@ function describeEvaluation(...args: [string, unknown][]) {
         throw e;
       }
       assert.strictEqual(success, true);
-      assertEql(value, expected);
+      assertLispEqual(value, expected);
     });
   }
 }
@@ -145,8 +176,13 @@ function evaluateText(expression: string, environment = createEnvironment()) {
   return evaluate(datum, environment);
 }
 
-function assertEql(value: unknown, expected: unknown) {
-  if (!eql(value, expected)) {
+function doubleEvaluateText(expression: string, environment = createEnvironment()) {
+  const firstEval = evaluateText(expression, environment);
+  return evaluate(firstEval, environment);
+}
+
+function assertLispEqual(value: unknown, expected: unknown) {
+  if (!equal(value, expected)) {
     throw new AssertionError(`Expected ${print(value)} to be ${print(expected)}.`);
   }
 }

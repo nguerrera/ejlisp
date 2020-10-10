@@ -62,6 +62,10 @@ export namespace KnownSymbol {
   export const Progn = intern("progn");
   export const Defun = intern("defun");
   export const Let = intern("let");
+  export const List = intern("list");
+  export const Append = intern("append");
+  export const Apply = intern("apply");
+  export const Vector = intern("vector");
 }
 
 /** A token that represents a number. */
