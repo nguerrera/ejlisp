@@ -429,7 +429,6 @@ function expandQuasiquote(form: unknown): unknown {
 function expandQuasiquotedList(form: Cons) {
   let expansion: unknown[] = [KnownSymbol.Append];
   let listInProgress: unknown[] | undefined = undefined;
-  let isConstant: true;
 
   while (true) {
     const first = form.car;
@@ -623,15 +622,12 @@ function argumentOf(quasiquotingForm: Cons) {
   return (quasiquotingForm.cdr as Cons).car;
 }
 
-/**
- * If atom is a non-self-evaluating symbol, return (quote atom). Otherwise
- * return atom itself as a simplification..
- */
-function quote(atom: unknown) {
-  if (!isSymbol(atom) || isBool(atom)) {
-    return atom;
+/** Return form if it's self-evaluating, otherwise (quote form). */
+function quote(form: unknown) {
+  if ((!isCons(form) && !isSymbol(form)) || isBool(form)) {
+    return form;
   }
-  return list(KnownSymbol.Quote, atom);
+  return list(KnownSymbol.Quote, form);
 }
 
 function notBoundError(key: string): never {

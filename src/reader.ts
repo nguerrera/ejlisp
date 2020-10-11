@@ -1,3 +1,5 @@
+import { CharCode, EndOfInputError, Scanner, Token } from "./scanner";
+
 import {
   List,
   Float,
@@ -13,20 +15,10 @@ import {
   KnownSymbol,
 } from "./primitives";
 
-import {
-  CharCode,
-  EndOfInputError,
-  isDelimiter,
-  isDigit,
-  isSymbolChar,
-  isWhitespace,
-  Scanner,
-  Token,
-} from "./scanner";
-
 /** A value that can be expressed with S-Expression syntax. */
 export type Datum = string | Sym | Num | List | Vector | false | null;
 
+/** Reads one datum and advances scanner to next datum. */
 export function read(scanner: Scanner): Datum {
   let currentToken = Token.None;
   return readDatum();

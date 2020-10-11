@@ -12,14 +12,14 @@ export type Expression =
   | FunctionCall;
 
 export enum ExpressionKind {
-  Literal = "Quote",
-  GetVariable = "GetVariable",
-  SetVariable = "SetVariable",
-  Progn = "Progn",
-  If = "If",
-  While = "While",
-  FunctionCall = "FunctionCall",
-  Lambda = "Lambda",
+  Literal,
+  GetVariable,
+  SetVariable,
+  Progn,
+  If,
+  While,
+  FunctionCall,
+  Lambda,
 }
 
 interface ExpressionBase {
@@ -216,7 +216,7 @@ export function compile(expression: Expression): [es.Expression, unknown[]] {
       params: [],
       body: {
         type: "BlockStatement",
-        body: [whileLoop, returnNil],
+        body: [whileLoop],
       },
     };
 
@@ -243,11 +243,6 @@ const negativeInfinityLiteral: es.UnaryExpression = {
   argument: infinityLiteral,
   operator: "-",
   prefix: true,
-};
-
-const returnNil: es.ReturnStatement = {
-  type: "ReturnStatement",
-  argument: nilLiteral,
 };
 
 /**

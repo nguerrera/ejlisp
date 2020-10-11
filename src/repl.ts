@@ -1,10 +1,10 @@
 import { createEnvironment, evaluate } from "./evaluator";
-
 import { intern, print } from "./primitives";
-import { stdin, stdout } from "process";
-import * as readline from "readline";
-import { createScanner, EndOfInputError } from "./scanner";
 import { read } from "./reader";
+import { EndOfInputError, createScanner } from "./scanner";
+
+import * as readline from "readline";
+import { stdin, stdout } from "process";
 
 export async function readEvalPrintLoop() {
   let done = false;
