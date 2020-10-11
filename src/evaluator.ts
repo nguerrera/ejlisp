@@ -1,7 +1,57 @@
-import { generate } from "astring";
-import { Nominal, isInterned, print, symbolName, nil, isCons, error } from "./primitives";
-import * as es from "estree";
-import * as primitives from "./primitives";
+import {
+  Cons,
+  KnownSymbol,
+  List,
+  Nominal,
+  Sym,
+  add,
+  append,
+  apply,
+  bignump,
+  booleanp,
+  car,
+  cdr,
+  cons,
+  consp,
+  divide,
+  eq,
+  eql,
+  error,
+  fixnump,
+  float,
+  floatp,
+  integerp,
+  intern,
+  isBool,
+  isCons,
+  isList,
+  isSymbol,
+  isVector,
+  iterate,
+  list,
+  listStar,
+  listp,
+  makeSymbol,
+  mostNegativeFixnum,
+  mostPositiveFixnum,
+  multiply,
+  nil,
+  nilp,
+  not,
+  numberp,
+  numericEqual,
+  print,
+  setcar,
+  setcdr,
+  stringp,
+  subtract,
+  symbolName,
+  symbolp,
+  t,
+  truncate,
+  vector,
+  vectorp,
+} from "./primitives";
 
 import {
   Expression,
@@ -14,10 +64,10 @@ import {
   Progn,
   SetVariable,
   While,
-  parse,
-  expandQuasiquote,
-} from "./expressions";
-import { KnownSymbol } from "./reader";
+  compile,
+} from "./compiler";
+
+import { generate } from "astring";
 
 export interface Environment extends Nominal<"environment"> {
   [key: string]: unknown;
@@ -39,7 +89,230 @@ export function evaluate(form: unknown, environment: Environment): unknown {
   }
 }
 
-export function compileFormToString(form: unknown) {
+/**
+ * Parse a Lisp form into an AST for input to the compiler.
+ */
+export function parse(form: unknown): Expression {
+  let boundVariables: BoundVariableSet | undefined = undefined;
+  return parseForm(form);
+
+  function parseForm(form: unknown): Expression {
+    if (isCons(form)) {
+      return parseConsForm(form);
+    } else if (isSymbol(form)) {
+      return parseGetVariable(form);
+    } else {
+      return parseLiteral(form);
+    }
+  }
+
+  function parseConsForm(list: Cons) {
+    const [sym, rest] = expectList(list, _);
+    if (isSymbol(sym)) {
+      switch (sym) {
+        // special forms
+        case KnownSymbol.Quote:
+          return parseQuote(rest);
+        case KnownSymbol.Setq:
+          return parseSetq(rest);
+        case KnownSymbol.If:
+          return parseIf(rest);
+        case KnownSymbol.While:
+          return parseWhile(rest);
+        case KnownSymbol.Lambda:
+          return parseLambda(rest);
+        case KnownSymbol.Progn:
+          return parseProgn(rest);
+        // "macros" currently implemented with hard-coded expansion in parser
+        case KnownSymbol.Defun:
+          return parseDefun(rest);
+        case KnownSymbol.Let:
+          return parseLet(rest);
+        case KnownSymbol.Quasiquote:
+          return parseQuasiquote(rest);
+      }
+    }
+
+    return parseFunctionCall(list);
+  }
+
+  function parseGetVariable(sym: Sym): GetVariable | Literal {
+    if (isBool(sym)) {
+      return parseLiteral(sym);
+    }
+
+    return {
+      kind: ExpressionKind.GetVariable,
+      symbol: sym,
+      isBound: isBound(sym),
+    };
+  }
+
+  function parseQuote(rest: List) {
+    const [value] = expectTuple(rest, _);
+    return parseLiteral(value);
+  }
+
+  function parseQuasiquote(rest: List): Expression {
+    const [form] = expectTuple(rest, _);
+    const expansion = expandQuasiquote(form);
+    return parseForm(expansion);
+  }
+
+  function parseSetq(rest: List): SetVariable {
+    const [sym, value] = expectTuple(rest, isVariableSymbol, _);
+    return {
+      kind: ExpressionKind.SetVariable,
+      symbol: sym,
+      value: parseForm(value),
+      isBound: isBound(sym),
+    };
+  }
+
+  function parseIf(list: List): If {
+    const [test, rest] = expectList(list, _);
+    const [then, restRest] = expectList(rest, _);
+    const [otherwise] = restRest ? expectTuple(restRest, _) : [nil];
+
+    return {
+      kind: ExpressionKind.If,
+      test: parseForm(test),
+      then: parseForm(then),
+      otherwise: parseForm(otherwise),
+    };
+  }
+
+  function parseWhile(rest: List): While {
+    const [test, expressions] = expectList(rest, _);
+    return {
+      kind: ExpressionKind.While,
+      test: parseForm(test),
+      body: parseBody(expressions),
+    };
+  }
+
+  function parseProgn(rest: List): Progn {
+    return {
+      kind: ExpressionKind.Progn,
+      expressions: parseExpressionList(rest),
+    };
+  }
+
+  function parseBody(list: List): Expression {
+    if (list === nil) {
+      return parseLiteral(nil);
+    } else if (list.cdr === nil) {
+      return parseForm(list.car);
+    } else {
+      return parseProgn(list);
+    }
+  }
+
+  function parseLambda(list: List, name?: string): Lambda {
+    const [parameterList, body] = expectList(list, isList);
+    const parameters = expectArray(parameterList, isVariableSymbol);
+    return parseLambdaBody(parameters, body, name);
+  }
+
+  function parseLambdaBody(parameters: symbol[], body: List, name?: string) {
+    let lambda: Lambda;
+    pushBoundVariables(parameters);
+    try {
+      lambda = {
+        kind: ExpressionKind.Lambda,
+        name,
+        parameters,
+        body: parseBody(body),
+      };
+    } finally {
+      popBoundVariables();
+    }
+    return lambda;
+  }
+
+  function parseFunctionCall(list: List): FunctionCall {
+    const [func, args] = expectList(list, _);
+    return {
+      kind: ExpressionKind.FunctionCall,
+      function: parseForm(func),
+      arguments: parseExpressionList(args),
+    };
+  }
+
+  function parseLiteral(value: unknown): Literal {
+    return { kind: ExpressionKind.Literal, value };
+  }
+
+  function parseLet(rest: List): FunctionCall {
+    const [bindingList, body] = expectList(rest, isList);
+    const bindings = expectArray(bindingList, isCons);
+    const parameters = bindings.map(list => expect(list.car, isVariableSymbol));
+    const args = bindings.map(list => expectTuple(expect(list.cdr, isList), _)[0]);
+    const lambda = parseLambdaBody(parameters, body);
+
+    return {
+      kind: ExpressionKind.FunctionCall,
+      function: lambda,
+      arguments: args.map(parseForm),
+    };
+  }
+
+  function parseDefun(rest: List): SetVariable {
+    const [sym, lambda] = expectList(rest, isVariableSymbol);
+    return {
+      kind: ExpressionKind.SetVariable,
+      symbol: sym,
+      value: parseLambda(lambda, symbolName(sym)),
+      isBound: false, // defun operates on global not lexical environment
+    };
+  }
+
+  function parseExpressionList(list: List) {
+    let expressions = [];
+
+    for (const each of iterate(list)) {
+      const expression = parseForm(each);
+      expressions.push(expression);
+    }
+
+    return expressions;
+  }
+
+  function pushBoundVariables(variables: symbol[]) {
+    boundVariables = new BoundVariableSet(variables, boundVariables);
+  }
+
+  function popBoundVariables() {
+    boundVariables = boundVariables!.parent;
+  }
+
+  function isBound(variable: symbol) {
+    for (let bv = boundVariables; bv !== undefined; bv = bv.parent) {
+      if (bv.set.has(variable)) {
+        return true;
+      }
+    }
+    return false;
+  }
+}
+
+/**
+ * Expand macro form to equivalent code.
+ *
+ * (We don't first class macros yet so this is just hard-coded to expand
+ * quasiquote or return unchanged form.)
+ */
+export function macroexpand(form: unknown) {
+  if (!isCons(form) || form.car !== KnownSymbol.Quasiquote) {
+    return form;
+  }
+  if (!isCons(form.cdr)) {
+    throw error("Invalid quasiquote");
+  }
+  return expandQuasiquote(form.cdr.car);
+}
+
+export function compileToString(form: unknown) {
   const lispTree = parse(form);
   const [jsTree, literals] = compile(lispTree);
   const jsText = generate(jsTree);
@@ -52,254 +325,244 @@ export function compileFormToString(form: unknown) {
   return comment + jsText + "\n";
 }
 
-export function compile(expression: Expression): [es.Expression, unknown[]] {
-  let literals: unknown[] = [];
-  return [compileExpression(expression), literals];
-
-  function compileExpression(expression: Expression) {
-    switch (expression.kind) {
-      case ExpressionKind.GetVariable:
-        return compileGetVariable(expression);
-      case ExpressionKind.If:
-        return compileIf(expression);
-      case ExpressionKind.Literal:
-        return compileLiteral(expression);
-      case ExpressionKind.Progn:
-        return compileProgn(expression);
-      case ExpressionKind.While:
-        return compileWhile(expression);
-      case ExpressionKind.Lambda:
-        return compileLambda(expression);
-      case ExpressionKind.SetVariable:
-        return compileSetVariable(expression);
-      case ExpressionKind.FunctionCall:
-        return compileFunctionCall(expression);
-    }
-  }
-
-  function compileFunctionCall(call: FunctionCall): es.CallExpression {
-    const args = call.arguments.map(compileExpression);
-    const callee = compileExpression(call.function);
-    return {
-      type: "CallExpression",
-      optional: false,
-      arguments: args,
-      callee,
-    };
-  }
-
-  function compileGetVariable(get: GetVariable): es.Expression {
-    if (get.isBound) {
-      return getBoundVariable(get.symbol);
-    } else {
-      const id = getFreeSymbolId(get.symbol);
-      return {
-        type: "CallExpression",
-        callee: variableGetterId,
-        arguments: [getLiteral(id)],
-        optional: false,
-      };
-    }
-  }
-
-  function compileSetVariable(set: SetVariable): es.AssignmentExpression {
-    const left = getVariable(set.symbol, set.isBound);
-    const right = compileExpression(set.value);
-    return {
-      type: "AssignmentExpression",
-      operator: "=",
-      left,
-      right,
-    };
-  }
-
-  function compileIf(conditional: If): es.ConditionalExpression {
-    const test = getTest(compileExpression(conditional.test));
-    const consequent = compileExpression(conditional.then);
-    const alternate = compileExpression(conditional.otherwise);
-    return {
-      type: "ConditionalExpression",
-      test,
-      consequent,
-      alternate,
-    };
-  }
-
-  function compileLiteral(literal: Literal): es.Expression {
-    const value = literal.value;
-
-    switch (value) {
-      case nil:
-        return nilLiteral;
-      case null:
-        return nullLiteral;
-      case Infinity:
-        return infinityLiteral;
-      case -Infinity:
-        return negativeInfinityLiteral;
-      default:
-        if (Number.isNaN(value)) {
-          return nanLiteral;
-        }
-    }
-
-    switch (typeof value) {
-      case "number":
-      case "string":
-      case "boolean":
-        return getLiteral(value);
-      default:
-        literals.push(value);
-        return getIndexedLiteral(literals.length - 1);
-    }
-  }
-
-  function compileProgn(progn: Progn): es.SequenceExpression {
-    const expressions = progn.expressions.map(compileExpression);
-    return { type: "SequenceExpression", expressions };
-  }
-
-  function compileLambda(lambda: Lambda): es.Expression {
-    const body = compileExpression(lambda.body);
-    const params = lambda.parameters.map(getBoundVariable);
-
-    return nameFunction(lambda.name, {
-      type: "FunctionExpression",
-      params,
-      body: {
-        type: "BlockStatement",
-        body: [{ type: "ReturnStatement", argument: body }],
-      },
-    });
-  }
-
-  function compileWhile(loop: While): es.CallExpression {
-    const test = getTest(compileExpression(loop.test));
-    const body = compileExpression(loop.body);
-
-    const loopBody: es.ExpressionStatement = {
-      type: "ExpressionStatement",
-      expression: body,
-    };
-
-    const whileLoop: es.WhileStatement = {
-      type: "WhileStatement",
-      test,
-      body: loopBody,
-    };
-
-    const callee: es.FunctionExpression = {
-      type: "FunctionExpression",
-      params: [],
-      body: {
-        type: "BlockStatement",
-        body: [whileLoop, returnNil],
-      },
-    };
-
-    return {
-      type: "CallExpression",
-      optional: false,
-      arguments: [],
-      callee,
-    };
+class BoundVariableSet {
+  public readonly set: ReadonlySet<symbol>;
+  constructor(symbols: readonly symbol[], public parent?: BoundVariableSet) {
+    this.set = new Set<symbol>(symbols);
   }
 }
 
-const nullLiteral = getLiteral(null);
-const nilLiteral = getIdentifier("undefined");
-const infinityLiteral = getIdentifier("Infinity");
-const nanLiteral = getIdentifier("NaN");
-const environmentId = getIdentifier("$E");
-const literalsId = getIdentifier("$L");
-const variableGetterId = getIdentifier("$G");
-const testerId = getIdentifier("$T");
+/** A predicate that checks that a value is of the given type. */
+type TypePredicate<Type = unknown> = (value: unknown) => value is Type;
 
-const negativeInfinityLiteral: es.UnaryExpression = {
-  type: "UnaryExpression",
-  argument: infinityLiteral,
-  operator: "-",
-  prefix: true,
+/** The type checked by a TypePredicate */
+type CheckedType<Predicate> = Predicate extends TypePredicate<infer Type> ? Type : never;
+
+/** The tuple of types checked by a tuple of TypePredicates */
+type CheckedTypes<Predicates extends TypePredicate[]> = {
+  [Key in keyof Predicates]: CheckedType<Predicates[Key]>;
 };
 
-const returnNil: es.ReturnStatement = {
-  type: "ReturnStatement",
-  argument: nilLiteral,
-};
+function expectList<T>(list: List, carType: TypePredicate<T>): [T, List] {
+  if (list === nil) {
+    throw error("Expected non-empty list.");
+  }
+
+  const car = expect(list.car, carType);
+  const cdr = expect(list.cdr, isList);
+  return [car, cdr];
+}
+
+function expectArray<T>(list: List, elementType: TypePredicate<T>) {
+  let elements = [];
+
+  for (const each of iterate(list)) {
+    const e = expect(each, elementType);
+    elements.push(e);
+  }
+
+  return elements;
+}
+
+function expectTuple<T extends TypePredicate[]>(list: List, ...elementTypes: T) {
+  let elements = new Array<unknown>(elementTypes.length);
+  let index = 0;
+
+  for (const each of iterate(list)) {
+    if (index === elementTypes.length) {
+      throw error("Too many elements.");
+    }
+    elements[index] = expect(each, elementTypes[index]);
+    index++;
+  }
+
+  if (index !== elementTypes.length) {
+    throw error("Too few elements.");
+  }
+
+  return elements as CheckedTypes<T>;
+}
 
 /**
- * Map symbols to unique strings that are safe JavaScript identifiers. This
- * allows us to use JavaScript's lexical scoping directly even though Lisp
- * symbols can have names that are not valid identifiers. It further allows us
- * to achieve Lisp semantics where two symbols can have the same name but bind
- * to different slots if they're not both interned.
+ * Expands `form, (read as (quasiquote form)) to equivalent code.
  *
- * The same scheme is used for uninterned global variables, but interned global
- * variables keep their descriptive names and are accessed as `$E["<name>"]`
- * where `$E` is always in scope as the global environment. This helps debugging
- * and allows a JavaScript host to easily inject things into the Lisp global
- * environment.
+ * This implementation attempts to follow the formal rules as directly as
+ * possible. Modest simplification is performed on the fly to make the expansion
+ * somewhat readable, but it's still sub-optimal at this point.
+ *
+ * Note that seemingly obvious simplifications can fail notoriously easily in
+ * the presence of nested splicing. Significant testing will be needed before
+ * any further simplification is attempted.
+ *
+ * References:
+ * 1. Common Lisp HyperSpec: 2.4.6 Backquote
+ *    https://www.lispworks.com/documentation/HyperSpec/Body/02_df.htm
+ *
+ * 2. Common Lisp the Language, 2nd Edition, Guy L. Steele Jr.
+ *    https://www.cs.cmu.edu/Groups/AI/html/cltl/clm/node190.html#BACKQUOTE
+ *    https://www.cs.cmu.edu/Groups/AI/html/cltl/clm/node367.html#SECTION003600000000000000000
+ *
+ * 3. Quasiquotation in Lisp, Alan Bawden
+ *    https://www.brics.dk/NS/99/1/BRICS-NS-99-1.pdf
  */
-const symbolIds = new Map<symbol, string>();
+function expandQuasiquote(form: unknown): unknown {
+  if (isCons(form)) {
+    if (isQuasiquote(form)) {
+      const inner = expandQuasiquote(argumentOf(form));
+      return expandQuasiquote(inner);
+    } else if (isUnquote(form)) {
+      return argumentOf(form);
+    } else if (isUnquoteSplicing(form)) {
+      throw error(",@ outside list.");
+    } else {
+      return expandQuasiquotedList(form);
+    }
+  } else if (isVector(form)) {
+    const asList = list.apply(undefined, form);
+    const expandedList = expandQuasiquote(asList);
+    return list(KnownSymbol.Apply, KnownSymbol.Vector, expandedList);
+  } else {
+    return quote(form);
+  }
+}
+
+function expandQuasiquotedList(form: Cons) {
+  let expansion: unknown[] = [KnownSymbol.Append];
+  let listInProgress: unknown[] | undefined = undefined;
+  let isConstant: true;
+
+  while (true) {
+    const first = form.car;
+    if (isCons(first)) {
+      if (isUnquote(first)) {
+        pushList(argumentOf(first));
+      } else if (isUnquoteSplicing(first)) {
+        push(argumentOf(first));
+      } else {
+        pushList(expandQuasiquote(first));
+      }
+    } else if (isUnquote(form)) {
+      push(argumentOf(form));
+      break;
+    } else if (isUnquoteSplicing(form)) {
+      throw error(",@ after .");
+    } else {
+      pushList(expandQuasiquote(first));
+    }
+
+    const rest = form.cdr;
+    if (rest === nil) {
+      break;
+    } else if (!isCons(rest)) {
+      push(quote(rest));
+      break;
+    }
+
+    form = rest;
+  }
+
+  return finishList();
+
+  /** Append form to the expansion in progress. */
+  function push(form: any) {
+    flushList();
+    expansion.push(form);
+  }
+
+  /**
+   * Logically append (list form) to the expansion in progress, but buffer it
+   * so that we can simplify (append (list x) (list y)) to (append (list x y))
+   * so long as neither x nor y are ,@ forms.
+   */
+  function pushList(form: any) {
+    if (isUnquoteSplicing(form)) {
+      push(list(KnownSymbol.List, form));
+    } else if (listInProgress !== undefined) {
+      listInProgress.push(form);
+    } else {
+      listInProgress = [KnownSymbol.List, form];
+    }
+  }
+
+  /** Flush buffered pushList calls to the expansion. */
+  function flushList() {
+    if (listInProgress !== undefined) {
+      expansion.push(list.apply(undefined, listInProgress));
+      listInProgress = undefined;
+    }
+  }
+
+  /**
+   * Flush buffered pushList calls to the expansion and make a final
+   * simplification of (append x) to x, provided x is not a ,@ form.
+   */
+  function finishList() {
+    flushList();
+
+    if (expansion.length === 2) {
+      const x = expansion[1];
+      if (!isCons(x) || !isUnquoteSplicing(x)) {
+        return x;
+      }
+    }
+
+    return list.apply(undefined, expansion);
+  }
+}
 
 const environmentPrototype = (function () {
   const constants = {
-    nil: primitives.nil,
-    t: primitives.t,
-    "most-positive-fixnum": primitives.mostPositiveFixnum,
-    "most-negative-fixnum": primitives.mostNegativeFixnum,
+    nil,
+    t,
+    "most-positive-fixnum": mostPositiveFixnum,
+    "most-negative-fixnum": mostNegativeFixnum,
   };
 
   const env = {
     ...constants,
-    append: primitives.append,
-    apply: primitives.apply,
-    bignump: primitives.bignump,
-    booleanp: primitives.booleanp,
-    car: primitives.car,
-    cdr: primitives.cdr,
-    cons: primitives.cons,
-    consp: primitives.consp,
-    error: primitives.error,
-    fixnump: primitives.fixnump,
-    float: primitives.float,
-    floatp: primitives.floatp,
-    numberp: primitives.numberp,
-    eq: primitives.eq,
-    eql: primitives.eql,
-    listp: primitives.listp,
-    not: primitives.not,
-    null: primitives.nilp,
-    integerp: primitives.integerp,
-    intern: primitives.intern,
-    list: primitives.list,
-    print: primitives.print,
-    setcar: primitives.setcar,
-    setcdr: primitives.setcdr,
-    stringp: primitives.stringp,
-    symbolp: primitives.symbolp,
-    truncate: primitives.truncate,
-    vector: primitives.vector,
-    vectorp: primitives.vectorp,
-    "+": primitives.add,
-    "-": primitives.subtract,
-    "/": primitives.divide,
-    "*": primitives.multiply,
-    "=": primitives.numericEqual,
-    "list*": primitives.listStar,
-    "make-symbol": primitives.makeSymbol,
-    "symbol-name": primitives.symbolName,
+    append,
+    apply,
+    bignump,
+    booleanp,
+    car,
+    cdr,
+    cons,
+    consp,
+    error,
+    fixnump,
+    float,
+    floatp,
+    macroexpand,
+    numberp,
+    eq,
+    eql,
+    listp,
+    not,
+    integerp,
+    intern,
+    list,
+    print,
+    setcar,
+    setcdr,
+    stringp,
+    symbolp,
+    truncate,
+    vector,
+    vectorp,
 
-    // hack for now to debug quasiquote expansion
-    macroexpand: function (form: unknown) {
-      if (!isCons(form) || form.car !== KnownSymbol.Quasiquote) {
-        return form;
-      }
-      if (!isCons(form.cdr)) {
-        throw error("Invalid quasiquote");
-      }
-      return expandQuasiquote(form.cdr.car);
-    },
+    compile: compileToString,
+    null: nilp,
+
+    "+": add,
+    "-": subtract,
+    "/": divide,
+    "*": multiply,
+    "=": numericEqual,
+    "list*": listStar,
+    "make-symbol": makeSymbol,
+    "symbol-name": symbolName,
+    "to-string": (x: any) => x.toString(),
+    "to-json": (x: any) => JSON.stringify(x),
   };
 
   for (const key in constants) {
@@ -309,95 +572,66 @@ const environmentPrototype = (function () {
   return env;
 })();
 
-function getBoundSymbolId(sym: symbol): string {
-  let id = symbolIds.get(sym);
-  if (id === undefined) {
-    id = "$V" + symbolIds.size.toString(36);
-    symbolIds.set(sym, id);
-  }
-  return id;
-}
-
-function getFreeSymbolId(sym: symbol): string {
-  return isInterned(sym) ? symbolName(sym) : getBoundSymbolId(sym);
-}
-
-function getBoundVariable(sym: symbol): es.Identifier {
-  const name = getBoundSymbolId(sym);
-  return getIdentifier(name);
-}
-
-function getFreeVariable(sym: symbol): es.MemberExpression {
-  const id = getFreeSymbolId(sym);
-  return {
-    type: "MemberExpression",
-    computed: true,
-    optional: false,
-    object: environmentId,
-    property: getLiteral(id),
-  };
-}
-
-function getVariable(sym: symbol, isBound: boolean) {
-  return isBound ? getBoundVariable(sym) : getFreeVariable(sym);
-}
-
-function getIdentifier(name: string): es.Identifier {
-  return { type: "Identifier", name };
-}
-
-function getLiteral(value: string | number | boolean | null): es.Literal {
-  return { type: "Literal", value };
-}
-
-function getIndexedLiteral(index: number): es.MemberExpression {
-  return {
-    type: "MemberExpression",
-    object: literalsId,
-    property: getLiteral(index),
-    computed: true,
-    optional: false,
-  };
-}
-
-function getTest(expression: es.Expression): es.CallExpression {
-  return {
-    type: "CallExpression",
-    callee: testerId,
-    arguments: [expression],
-    optional: false,
-  };
-}
-
-function nameFunction(name: string | undefined, func: es.FunctionExpression): es.Expression {
-  if (!name) {
-    return func;
+function expect<T>(datum: unknown, typep: TypePredicate<T>) {
+  if (!typep(datum)) {
+    throw error(`Expected ${typep.name}.`);
   }
 
-  const key = getLiteral(name);
+  return datum;
+}
 
-  const obj: es.ObjectExpression = {
-    type: "ObjectExpression",
-    properties: [
-      {
-        type: "Property",
-        kind: "init",
-        method: false,
-        shorthand: false,
-        computed: false,
-        key,
-        value: func,
-      },
-    ],
-  };
+function _(_value: unknown): _value is unknown {
+  return true;
+}
 
-  return {
-    type: "MemberExpression",
-    computed: true,
-    object: obj,
-    optional: false,
-    property: key,
-  };
+function isVariableSymbol(value: unknown): value is symbol {
+  if (isBool(value)) {
+    error(`${value === t ? "t" : "nil"} cannot be used as a variable.`);
+  }
+  return typeof value === "symbol";
+}
+
+/** Determine if form is `x (read as (quasiquote x)) */
+function isQuasiquote(form: Cons) {
+  return isQuasiquotingForm(KnownSymbol.Quasiquote, form);
+}
+
+/** Determine if form is ,x (read as (unquote x)) */
+function isUnquote(form: Cons) {
+  return isQuasiquotingForm(KnownSymbol.Unquote, form);
+}
+
+/** Determine if form is ,@x (read as (unquote-splicing x)) */
+function isUnquoteSplicing(form: Cons) {
+  return isQuasiquotingForm(KnownSymbol.UnquoteSplicing, form);
+}
+
+function isQuasiquotingForm(sym: Sym, form: Cons) {
+  if (form.car !== sym) {
+    return false;
+  }
+
+  if (!isCons(form.cdr) || form.cdr.cdr !== nil) {
+    throw error(`Malformed ${print(sym)}.`);
+  }
+
+  return true;
+}
+
+/** Obtain x of (quasiquote x), (unquote x), or (unquote-splicing x). */
+function argumentOf(quasiquotingForm: Cons) {
+  return (quasiquotingForm.cdr as Cons).car;
+}
+
+/**
+ * If atom is a non-self-evaluating symbol, return (quote atom). Otherwise
+ * return atom itself as a simplification..
+ */
+function quote(atom: unknown) {
+  if (!isSymbol(atom) || isBool(atom)) {
+    return atom;
+  }
+  return list(KnownSymbol.Quote, atom);
 }
 
 function notBoundError(key: string): never {

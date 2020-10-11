@@ -1,7 +1,8 @@
 import { assert, AssertionError } from "chai";
 import { createEnvironment, evaluate } from "./evaluator";
 import { cons, equal, intern, list, listStar, nil, print, t } from "./primitives";
-import { createScanner, read } from "./reader";
+import { read } from "./reader";
+import { createScanner } from "./scanner";
 
 describe("arithmetic", () => {
   describeEvaluation(

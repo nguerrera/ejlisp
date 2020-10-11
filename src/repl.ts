@@ -1,8 +1,10 @@
-import { compileFormToString, createEnvironment, evaluate } from "./evaluator";
-import { EofError, createScanner, read } from "./reader";
+import { createEnvironment, evaluate } from "./evaluator";
+
 import { intern, print } from "./primitives";
 import { stdin, stdout } from "process";
 import * as readline from "readline";
+import { createScanner, EndOfInputError } from "./scanner";
+import { read } from "./reader";
 
 export async function readEvalPrintLoop() {
   let done = false;
@@ -14,18 +16,6 @@ export async function readEvalPrintLoop() {
     return intern("Bye.");
   };
 
-  environment["to-string"] = function toString(x: any) {
-    return x.toString();
-  };
-
-  environment["to-json"] = function toJson(x: any) {
-    return JSON.stringify(x, undefined, 2);
-  };
-
-  environment.compile = function compile(form: unknown) {
-    return compileFormToString(form);
-  };
-
   while (!done) {
     let input = await question("> ");
     while (true) {
@@ -33,7 +23,7 @@ export async function readEvalPrintLoop() {
         readEvalPrint(input);
         break;
       } catch (e) {
-        if (e instanceof EofError) {
+        if (e instanceof EndOfInputError) {
           input += "\n";
           input += await question("... ");
           continue;

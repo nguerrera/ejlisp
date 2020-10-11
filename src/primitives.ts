@@ -1,4 +1,4 @@
-import { isSymbolChar } from "./characters";
+import { isSymbolChar } from "./scanner";
 
 /**
  * Unique symbol that is private to this module and serves to implement
@@ -62,6 +62,32 @@ export type Bool = typeof nil | typeof t;
  * interned t symbol.
  */
 export type Sym = symbol | Bool;
+
+/**
+ * Map of all interned symbols by name.
+ */
+const internedSymbols = new Map<string | undefined, symbol>();
+
+/**
+ * Well-known interned symbols
+ */
+export namespace KnownSymbol {
+  export const Quote = intern("quote");
+  export const Quasiquote = intern("quasiquote");
+  export const Unquote = intern("unquote");
+  export const UnquoteSplicing = intern("unquote-splicing");
+  export const Setq = intern("setq");
+  export const If = intern("if");
+  export const While = intern("while");
+  export const Lambda = intern("lambda");
+  export const Progn = intern("progn");
+  export const Defun = intern("defun");
+  export const Let = intern("let");
+  export const List = intern("list");
+  export const Append = intern("append");
+  export const Apply = intern("apply");
+  export const Vector = intern("vector");
+}
 
 /**
  * Lisp cons cell type.
@@ -150,8 +176,6 @@ export const mostNegativeFixnum = -0x80000000 as Fixnum;
 
 /** Smallest integer value that can be represented as a fixnum. */
 export const mostPositiveFixnum = 0x7fffffff as Fixnum;
-
-const internedSymbols = new Map<string | undefined, symbol>();
 
 export function nilp(value: unknown): Bool {
   return value === nil || nil;
