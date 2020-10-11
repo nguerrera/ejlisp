@@ -143,8 +143,8 @@ describe("quasiquoting", () => {
         (setq s '(4 6)))`,
       env
     );
-    assertLispEqual(doubleEvaluateText("``(,,q))", env), list(24));
-    assertLispEqual(doubleEvaluateText("``(,@,q))", env), 24);
+    assertLispEqual(doubleEvaluateText("``(,,q)", env), list(24));
+    assertLispEqual(doubleEvaluateText("``(,@,q)", env), 24);
     evaluateText("(setq r '(3 5))", env);
     assertLispEqual(doubleEvaluateText("``(,,@q)", env), list(list(3, 5), list(4, 6)));
     assertLispEqual(doubleEvaluateText("``(,@,@q)", env), list(3, 5, 4, 6));
@@ -174,6 +174,7 @@ function describeEvaluation(...args: [string, unknown][]) {
 function evaluateText(expression: string, environment = createEnvironment()) {
   const scanner = createScanner(expression);
   const datum = read(scanner);
+  assert.equal(scanner.position, expression.length, "More than one expression");
   return evaluate(datum, environment);
 }
 
