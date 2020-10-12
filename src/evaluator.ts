@@ -299,17 +299,15 @@ export function parse(form: unknown): Expression {
 /**
  * Expand macro form to equivalent code.
  *
- * (We don't first class macros yet so this is just hard-coded to expand
- * quasiquote or return unchanged form.)
+ * (We don't have first class macros yet so this is just hard-coded to expand
+ * quasiquote or return unchanged form for now.)
  */
 export function macroexpand(form: unknown) {
-  if (!isCons(form) || form.car !== KnownSymbol.Quasiquote) {
-    return form;
+  if (isQuasiquote(form)) {
+    return expandQuasiquote(argumentOf(form));
   }
-  if (!isCons(form.cdr)) {
-    throw error("Invalid quasiquote");
-  }
-  return expandQuasiquote(form.cdr.car);
+
+  return form;
 }
 
 export function compileToString(form: unknown) {
@@ -381,6 +379,25 @@ function expectTuple<T extends TypePredicate[]>(list: List, ...elementTypes: T) 
   }
 
   return elements as CheckedTypes<T>;
+}
+
+function expect<T>(datum: unknown, typep: TypePredicate<T>) {
+  if (!typep(datum)) {
+    throw error(`Expected ${typep.name}.`);
+  }
+
+  return datum;
+}
+
+function _(_value: unknown): _value is unknown {
+  return true;
+}
+
+function isVariableSymbol(value: unknown): value is symbol {
+  if (isBool(value)) {
+    error(`${value === t ? "t" : "nil"} cannot be used as a variable.`);
+  }
+  return typeof value === "symbol";
 }
 
 /**
@@ -500,7 +517,7 @@ function expandQuasiquotedList(form: Cons) {
 
     if (expansion.length === 2) {
       const x = expansion[1];
-      if (!isCons(x) || !isUnquoteSplicing(x)) {
+      if (!isUnquoteSplicing(x)) {
         return x;
       }
     }
@@ -571,63 +588,39 @@ const environmentPrototype = (function () {
   return env;
 })();
 
-function expect<T>(datum: unknown, typep: TypePredicate<T>) {
-  if (!typep(datum)) {
-    throw error(`Expected ${typep.name}.`);
-  }
-
-  return datum;
-}
-
-function _(_value: unknown): _value is unknown {
-  return true;
-}
-
-function isVariableSymbol(value: unknown): value is symbol {
-  if (isBool(value)) {
-    error(`${value === t ? "t" : "nil"} cannot be used as a variable.`);
-  }
-  return typeof value === "symbol";
-}
-
 /** Determine if form is `x (read as (quasiquote x)) */
-function isQuasiquote(form: Cons) {
-  return isQuasiquotingForm(KnownSymbol.Quasiquote, form);
+function isQuasiquote(form: unknown) {
+  return isCons(form) && form.car === KnownSymbol.Quasiquote;
 }
 
 /** Determine if form is ,x (read as (unquote x)) */
-function isUnquote(form: Cons) {
-  return isQuasiquotingForm(KnownSymbol.Unquote, form);
+function isUnquote(form: unknown) {
+  return isCons(form) && form.car === KnownSymbol.Unquote;
 }
 
 /** Determine if form is ,@x (read as (unquote-splicing x)) */
-function isUnquoteSplicing(form: Cons) {
-  return isQuasiquotingForm(KnownSymbol.UnquoteSplicing, form);
-}
-
-function isQuasiquotingForm(sym: Sym, form: Cons) {
-  if (form.car !== sym) {
-    return false;
-  }
-
-  if (!isCons(form.cdr) || form.cdr.cdr !== nil) {
-    throw error(`Malformed ${print(sym)}.`);
-  }
-
-  return true;
+function isUnquoteSplicing(form: unknown) {
+  return isCons(form) && form.car === KnownSymbol.UnquoteSplicing;
 }
 
 /** Obtain x of (quasiquote x), (unquote x), or (unquote-splicing x). */
-function argumentOf(quasiquotingForm: Cons) {
-  return (quasiquotingForm.cdr as Cons).car;
+function argumentOf(form: unknown) {
+  if (!isCons(form) || !isCons(form.cdr) || form.cdr.cdr !== nil) {
+    throw error("Malformed quasiquote, unquote, or unquote-splicing.");
+  }
+  return form.cdr.car;
 }
 
 /** Return form if it's self-evaluating, otherwise (quote form). */
 function quote(form: unknown) {
-  if ((!isCons(form) && !isSymbol(form)) || isBool(form)) {
+  if (isSelfEvaluating(form)) {
     return form;
   }
   return list(KnownSymbol.Quote, form);
+}
+
+function isSelfEvaluating(form: unknown) {
+  return (!isCons(form) && !isSymbol(form)) || isBool(form);
 }
 
 function notBoundError(key: string): never {
